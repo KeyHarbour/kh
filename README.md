@@ -72,21 +72,27 @@ kh state ls -o json
 
 Global flags:
 
-- `-o, --output table|json` (default: table)
-- `--debug` or `KH_DEBUG=1` for verbose logs
+```text
+-o, --output table|json   (default: table)
+--debug                   or KH_DEBUG=1 for verbose logs
+```
 
 ### login
 Authenticate with a personal access token (PAT) or stub device flow.
 
 Usage:
 
-- `kh login --token <PAT>`
-- `kh login --device`
+```zsh
+kh login --token <PAT>
+kh login --device
+```
 
 Flags:
 
-- `--token` string — PAT value
-- `--device` — start device flow (stub)
+```text
+--token string     PAT value
+--device           start device flow (stub)
+```
 
 ### whoami
 Show current auth context.
@@ -98,8 +104,10 @@ Get or set configuration values.
 
 Usage:
 
-- `kh config get <key>`
-- `kh config set <key> <value>`
+```zsh
+kh config get <key>
+kh config set <key> <value>
+```
 
 Keys: `endpoint`, `token`, `org`, `project`, `concurrency`
 
@@ -108,60 +116,75 @@ List or show Terraform states in Key-Harbour.
 
 Usage:
 
-- `kh state ls [--project ...] [--module ...] [--workspace ...] [-o table|json]`
-- `kh state show <state-id> [--raw] [-o table|json]`
+```zsh
+kh state ls [--project ...] [--module ...] [--workspace ...] [-o table|json]
+kh state show <state-id> [--raw] [-o table|json]
+```
 
 Flags (ls):
 
-- `--project` string — filter by project
-- `--module` string — filter by module
-- `--workspace` string — filter by workspace
+```text
+--project string     filter by project
+--module string      filter by module
+--workspace string   filter by workspace
+```
 
 Flags (show):
-- `--raw` — output raw v4 state JSON
+
+```text
+--raw    output raw v4 state JSON
+```
 
 ### import tfstate
 Import Terraform state objects from a source backend. Ingest into KH is pending; currently reads/validates and reports.
 
 Usage:
 
-- `kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--project ... --module ... --env ...] [--workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json] [--dry-run]`
+```zsh
+kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--project ... --module ... --env ...] [--workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json] [--dry-run]
+```
 
 Flags:
 
-- `--from` string — `http` or `local`
-- `--path` string — local file/dir for `--from=local`
-- `--url` string — HTTP source for `--from=http`
-- `--workspace-pattern` regex — infer workspace from filenames (default: `.*`)
-- `--project` string — annotate target project
-- `--module` string — annotate module (e.g., repo/path)
-- `--env` string — annotate environment
-- `--verify-checksum` — compute SHA256 and fail on mismatch
-- `--concurrency` int — parallel I/O (defaults from `KH_CONCURRENCY` or config)
-- `--report` path — write JSON report
-- `--dry-run` — preview without ingest
+```text
+--from string              http or local
+--path string              local file/dir for --from=local
+--url string               HTTP source for --from=http
+--workspace-pattern regex  infer workspace from filenames (default: .*)
+--project string           annotate target project
+--module string            annotate module (e.g., repo/path)
+--env string               annotate environment
+--verify-checksum          compute SHA256 and fail on mismatch
+--concurrency int          parallel I/O (defaults from KH_CONCURRENCY or config)
+--report path              write JSON report
+--dry-run                  preview without ingest
+```
 
 ### export tfstate
 Export Terraform state from KH to a destination backend.
 
 Usage:
 
-- `kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]`
+```zsh
+kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]
+```
 
 Flags:
 
-- `--to` string — `file` or `http`
-- `--out` path — file path template when `--to=file` (supports `{module}`, `{workspace}`)
-- `--url` string — destination URL when `--to=http` (supports `{module}`, `{workspace}`)
-- `--verify-checksum` — verify KH checksum pre-write and destination checksum post-write
-- `--overwrite` — allow overwriting existing files
-- `--idempotency-key` string — set `Idempotency-Key` header for HTTP writes
-- `--concurrency` int — parallel exports (defaults from `KH_CONCURRENCY` or config)
-- `--format` string — state format (default `v4`)
-- `--state-id` string — export a specific state
-- `--project`, `--module`, `--workspace` — filters for selection
-- `--dry-run` — preview without writing
-- `--lock` — acquire advisory lock per state during export
+```text
+--to string                 file or http
+--out path                  file path template when --to=file (supports {module}, {workspace})
+--url string                destination URL when --to=http (supports {module}, {workspace})
+--verify-checksum           verify KH checksum pre-write and destination checksum post-write
+--overwrite                 allow overwriting existing files
+--idempotency-key string    set Idempotency-Key header for HTTP writes
+--concurrency int           parallel exports (defaults from KH_CONCURRENCY or config)
+--format string             state format (default v4)
+--state-id string           export a specific state
+--project, --module, --workspace   filters for selection
+--dry-run                   preview without writing
+--lock                      acquire advisory lock per state during export
+```
 
 ### migrate backend
 
@@ -171,9 +194,11 @@ Usage: `kh migrate backend --from <src> --to <dest> [--dry-run]`
 
 Flags:
 
-- `--from` string — source backend
-- `--to` string — destination backend
-- `--dry-run` — preview without changes
+```text
+--from string    source backend
+--to string      destination backend
+--dry-run        preview without changes
+```
 
 ### verify
 Integrity checks for a given state.
@@ -182,19 +207,25 @@ Usage: `kh verify <state-id> [--full]`
 
 Flags:
 
-- `--full` — deep verification
+```text
+--full           deep verification
+```
 
 ### lock / unlock
 Advisory locks on KH states.
 
 Usage:
 
-- `kh lock <state-id>`
-- `kh unlock <state-id> [--force]`
+```zsh
+kh lock <state-id>
+kh unlock <state-id> [--force]
+```
 
 Flags (unlock):
 
-- `--force` — force unlock
+```text
+--force          force unlock
+```
 
 ## Output & exits
 
