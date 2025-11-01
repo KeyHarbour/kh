@@ -205,6 +205,7 @@ Integrity checks for a given state.
 
 Usage: `kh verify <state-id> [--full]`
 
+
 Flags:
 
 ```text
