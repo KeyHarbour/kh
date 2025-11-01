@@ -14,7 +14,7 @@ cd keyharbour-cli
 make tidy
 make build
 
-# run
+## Install/build
 make run args="--help"
 ```
 
@@ -27,10 +27,22 @@ make run args="--help"
 
 ## Inspect
 
+### Install the `kh` binary into your PATH
+
+Pick one of the options below.
+
+1) System-wide (requires sudo; installs to /usr/local/bin)
+
+```zsh
+
 - `kh state ls [--project ...] [--module ...] [--workspace ...] [-o table|json]`
 - `kh state show <state-id> [--raw]`
 
 ## Import
+
+2) User installation (no sudo; installs to ~/.local/bin)
+
+```zsh
 
 - `kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--dry-run] [--project ... --module ... --env ... --workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json]`
 	- Sources prioritized for MVP: local filesystem and HTTP.
@@ -39,6 +51,10 @@ make run args="--help"
 
 ## Export
 
+
+3) Using Go to install into $GOBIN (or $GOPATH/bin)
+
+```zsh
 - `kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters]`
 	- Targets prioritized for MVP: file and HTTP.
 	- Placeholders supported in `--out` / `--url`: `{module}`, `{workspace}` (falls back to `default` when absent).
@@ -47,6 +63,10 @@ make run args="--help"
 	- `--idempotency-key` sets the `Idempotency-Key` header for HTTP writes.
 	- `--concurrency` defaults from `KH_CONCURRENCY` or config value.
 
+
+4) Symlink the built binary (quick, but depends on repo path not moving)
+
+```zsh
 ## Migrate
 
 - `kh migrate backend --from ... --to ... [--dry-run]`

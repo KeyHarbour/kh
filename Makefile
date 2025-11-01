@@ -1,6 +1,9 @@
-.PHONY: tidy build run test vet fmt clean
+.PHONY: tidy build run test vet fmt clean install uninstall
 
 BINARY := bin/kh
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+INSTALL ?= install
 
  tidy:
 	go mod tidy
@@ -23,3 +26,11 @@ fmt:
 
 clean:
 	rm -rf bin
+
+# Install/uninstall the kh binary
+install: build
+	$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(INSTALL) -m 0755 $(BINARY) $(DESTDIR)$(BINDIR)/kh
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/kh
