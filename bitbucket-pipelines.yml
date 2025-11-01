@@ -1,11 +1,17 @@
 image: golang:1.22
 
+definitions:
+  caches:
+    go-mod: /go/pkg/mod
+    go-build: /root/.cache/go-build
+
 pipelines:
   default:
     - step:
         name: Build and Test
         caches:
-          - gomodules
+          - go-mod
+          - go-build
         script:
           - go version
           - make tidy
@@ -22,7 +28,8 @@ pipelines:
       - step:
           name: Build and Test (PR)
           caches:
-            - gomodules
+            - go-mod
+            - go-build
           script:
             - go version
             - make tidy
@@ -40,7 +47,8 @@ pipelines:
       - step:
           name: Build Release
           caches:
-            - gomodules
+            - go-mod
+            - go-build
           script:
             - go version
             - make tidy
