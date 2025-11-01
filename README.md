@@ -58,6 +58,7 @@ Quick start:
 kh --debug --help
 kh login --token <PAT>
 kh state ls -o json
+kh init project -n demo -e dev -m app --dir ./infra
 ```
 
 ## Auth & config
@@ -227,6 +228,61 @@ Flags (unlock):
 --force          force unlock
 ```
 
+### init project
+Scaffold a minimal Terraform project that uses the KeyHarbour HTTP backend (backend.hcl for addresses, backend.tf for partial configuration).
+
+Usage:
+
+```zsh
+kh init project -n <project-name> -e <environment> [--module <name>] [--dir <path>] [--endpoint <url>] [--org <org>] [--kh-project <kh_project>] [--force]
+```
+
+Examples:
+
+```zsh
+# Scaffold into ./tmp/app/dev with default endpoint https://api.keyharbour.ca
+kh init project -n sample -e dev -m app --dir ./tmp
+
+# Use values from config/env when flags are omitted
+KH_ENDPOINT=https://api.keyharbour.ca kh init project -n sample -e staging
+```
+
+Generated layout (dir/module/env):
+
+```text
+<dir>/
+	<module>/
+		<env>/
+			backend.tf        # terraform { backend "http" {} }
+			backend.hcl       # address/lock/unlock URLs and retry settings
+			versions.tf       # TF/core and providers constraints
+			providers.tf      # minimal provider set (hashicorp/null)
+			variables.tf      # project/environment/module variables
+			outputs.tf        # basic outputs
+			main.tf           # placeholder resource + locals
+			.gitignore        # standard Terraform ignores
+			README.md         # quick usage notes
+```
+
+Backend configuration (backend.hcl):
+
+```hcl
+address        = "https://api.keyharbour.ca/api/v1/states/<id>"
+lock_address   = "https://api.keyharbour.ca/api/v1/states/<id>/lock"
+unlock_address = "https://api.keyharbour.ca/api/v1/states/<id>/unlock"
+lock_method    = "POST"
+unlock_method  = "POST"
+retry_max      = 2
+```
+
+Initialize and plan:
+
+```zsh
+cd <dir>/<module>/<env>
+terraform init -backend-config=backend.hcl
+terraform plan -var="project=<name>" -var="environment=<env>" -var="module=<module>"
+```
+
 ## Output & exits
 
 - `-o, --output table|json` everywhere; stable JSON for CI
@@ -249,6 +305,49 @@ kh completion zsh > /usr/local/share/zsh/site-functions/_kh
 - `make build` — build binary at `bin/kh`
 - `make run args="..."` — build and run with args
 - `make test` — run tests
+- `make test-coverage` — run tests with coverage and generate HTML/text reports in `coverage/`
+- `make coverage-report` — generate coverage reports even if tests fail (CI-friendly)
 - `make vet` — static analysis
 - `make fmt` — format code
 - `make clean` — remove build artifacts
+
+## CI: Bitbucket Pipelines
+
+This repo includes a Bitbucket Pipelines configuration to build, test, and publish coverage artifacts.
+
+### Triggers
+
+- Default: runs on all branches when you push
+- Pull requests: runs when you open/update a PR
+- Tags `v*`: builds a release binary with version info embedded
+
+### Build environment
+
+- Base image: `golang:1.22`
+- Caches:
+	- `go-mod` → `/go/pkg/mod` (Go modules)
+	- `go-build` → `/root/.cache/go-build` (compiler cache)
+
+### Artifacts
+
+- `bin/kh` — compiled CLI
+- `coverage/**` — coverage outputs:
+	- `coverage/coverage.out` — raw profile
+	- `coverage/coverage.html` — interactive HTML report
+	- `coverage/coverage.txt` — text summary by function
+
+### Manual run
+
+In Bitbucket → Pipelines → “Run pipeline”, choose your branch and start a run. Ensure Pipelines is enabled in repository settings.
+
+### Notes on Free plan
+
+- Pipelines are available on the Free plan with limited monthly build minutes and single-step concurrency. If minutes are exhausted, runs queue/fail until the quota resets or the plan is upgraded.
+
+### Troubleshooting
+
+- Pipeline not showing up?
+	- Verify `bitbucket-pipelines.yml` exists at the repository root
+	- Ensure Pipelines is enabled (Repository settings → Pipelines)
+	- Confirm you pushed to the branch you’re viewing in Pipelines
+	- YAML must be valid; caches `go-mod` and `go-build` are defined under `definitions.caches`
