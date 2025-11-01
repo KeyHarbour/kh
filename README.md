@@ -71,6 +71,7 @@ kh state ls -o json
 ## Command reference
 
 Global flags:
+
 - `-o, --output table|json` (default: table)
 - `--debug` or `KH_DEBUG=1` for verbose logs
 
@@ -78,10 +79,12 @@ Global flags:
 Authenticate with a personal access token (PAT) or stub device flow.
 
 Usage:
+
 - `kh login --token <PAT>`
 - `kh login --device`
 
 Flags:
+
 - `--token` string — PAT value
 - `--device` — start device flow (stub)
 
@@ -94,6 +97,7 @@ Usage: `kh whoami [-o table|json]`
 Get or set configuration values.
 
 Usage:
+
 - `kh config get <key>`
 - `kh config set <key> <value>`
 
@@ -103,10 +107,12 @@ Keys: `endpoint`, `token`, `org`, `project`, `concurrency`
 List or show Terraform states in Key-Harbour.
 
 Usage:
+
 - `kh state ls [--project ...] [--module ...] [--workspace ...] [-o table|json]`
 - `kh state show <state-id> [--raw] [-o table|json]`
 
 Flags (ls):
+
 - `--project` string — filter by project
 - `--module` string — filter by module
 - `--workspace` string — filter by workspace
@@ -118,9 +124,11 @@ Flags (show):
 Import Terraform state objects from a source backend. Ingest into KH is pending; currently reads/validates and reports.
 
 Usage:
+
 - `kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--project ... --module ... --env ...] [--workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json] [--dry-run]`
 
 Flags:
+
 - `--from` string — `http` or `local`
 - `--path` string — local file/dir for `--from=local`
 - `--url` string — HTTP source for `--from=http`
@@ -137,9 +145,11 @@ Flags:
 Export Terraform state from KH to a destination backend.
 
 Usage:
+
 - `kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]`
 
 Flags:
+
 - `--to` string — `file` or `http`
 - `--out` path — file path template when `--to=file` (supports `{module}`, `{workspace}`)
 - `--url` string — destination URL when `--to=http` (supports `{module}`, `{workspace}`)
@@ -154,11 +164,13 @@ Flags:
 - `--lock` — acquire advisory lock per state during export
 
 ### migrate backend
+
 Plan migrations between backends (scaffolding).
 
 Usage: `kh migrate backend --from <src> --to <dest> [--dry-run]`
 
 Flags:
+
 - `--from` string — source backend
 - `--to` string — destination backend
 - `--dry-run` — preview without changes
@@ -169,16 +181,19 @@ Integrity checks for a given state.
 Usage: `kh verify <state-id> [--full]`
 
 Flags:
+
 - `--full` — deep verification
 
 ### lock / unlock
 Advisory locks on KH states.
 
 Usage:
+
 - `kh lock <state-id>`
 - `kh unlock <state-id> [--force]`
 
 Flags (unlock):
+
 - `--force` — force unlock
 
 ## Output & exits
