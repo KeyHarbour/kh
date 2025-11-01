@@ -2,89 +2,194 @@
 
 CLI for moving Terraform state between common backends and Key-Harbour.
 
-Status: MVP scaffold (commands parse flags and support dry-run; backends/API not wired yet).
+Status: MVP scaffold (commands parse flags, dry-run supported; some KH APIs not wired yet).
 
-## Install/build
+## Getting Started
 
-Requires Go 1.22+.
+Prerequisites: macOS, zsh, Go 1.22+ (for local build) or a prebuilt binary.
+
+Install one of the following ways:
+
+1) System-wide (recommended; installs to /usr/local/bin)
 
 ```zsh
 cd keyharbour-cli
-# initialize deps and build
 make tidy
 make build
+sudo make install   # installs /usr/local/bin/kh
+kh --help
+```
 
-## Install/build
-make run args="--help"
+2) User install (no sudo; installs to ~/.local/bin)
+
+```zsh
+cd keyharbour-cli
+make tidy
+make build
+make install DESTDIR="$HOME/.local" PREFIX=""
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+exec zsh -l
+kh --help
+```
+
+3) Go install into $GOBIN/$GOPATH/bin
+
+```zsh
+cd keyharbour-cli
+go mod tidy
+go install ./cmd/kh
+echo 'export PATH="$(go env GOPATH)/bin:$PATH"' >> ~/.zshrc
+exec zsh -l
+kh --help
+```
+
+4) Symlink the built binary
+
+```zsh
+cd keyharbour-cli
+make tidy && make build
+sudo ln -sf "$PWD/bin/kh" /usr/local/bin/kh
+kh --help
+```
+
+Quick start:
+
+```zsh
+kh --debug --help
+kh login --token <PAT>
+kh state ls -o json
 ```
 
 ## Auth & config
 
-- `kh login --token <PAT>` or `kh login --device` (stub device flow)
-- `kh whoami` shows token mask and org
+- `kh login --token <PAT>` or `kh login --device` (device flow is a stub)
+- `kh whoami` shows masked token and org
 - `kh config get|set <key> [value]` for endpoint, org, project, token, concurrency
-- Config stored at `${XDG_CONFIG_HOME}/kh/config` (JSON). Env overrides: `KH_ENDPOINT`, `KH_TOKEN`, `KH_ORG`, `KH_PROJECT`, `KH_CONCURRENCY`.
+- Config path: `${XDG_CONFIG_HOME}/kh/config` (JSON)
+- Env overrides: `KH_ENDPOINT`, `KH_TOKEN`, `KH_ORG`, `KH_PROJECT`, `KH_CONCURRENCY`, `KH_DEBUG`
 
-## Inspect
+## Command reference
 
-### Install the `kh` binary into your PATH
+Global flags:
+- `-o, --output table|json` (default: table)
+- `--debug` or `KH_DEBUG=1` for verbose logs
 
-Pick one of the options below.
+### login
+Authenticate with a personal access token (PAT) or stub device flow.
 
-1) System-wide (requires sudo; installs to /usr/local/bin)
+Usage:
+- `kh login --token <PAT>`
+- `kh login --device`
 
-```zsh
+Flags:
+- `--token` string — PAT value
+- `--device` — start device flow (stub)
 
+### whoami
+Show current auth context.
+
+Usage: `kh whoami [-o table|json]`
+
+### config
+Get or set configuration values.
+
+Usage:
+- `kh config get <key>`
+- `kh config set <key> <value>`
+
+Keys: `endpoint`, `token`, `org`, `project`, `concurrency`
+
+### state
+List or show Terraform states in Key-Harbour.
+
+Usage:
 - `kh state ls [--project ...] [--module ...] [--workspace ...] [-o table|json]`
-- `kh state show <state-id> [--raw]`
+- `kh state show <state-id> [--raw] [-o table|json]`
 
-## Import
+Flags (ls):
+- `--project` string — filter by project
+- `--module` string — filter by module
+- `--workspace` string — filter by workspace
 
-2) User installation (no sudo; installs to ~/.local/bin)
+Flags (show):
+- `--raw` — output raw v4 state JSON
 
-```zsh
+### import tfstate
+Import Terraform state objects from a source backend. Ingest into KH is pending; currently reads/validates and reports.
 
-- `kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--dry-run] [--project ... --module ... --env ... --workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json]`
-	- Sources prioritized for MVP: local filesystem and HTTP.
-	- `--verify-checksum` computes SHA256 on each blob and fails on mismatch before ingest (ingest API pending).
-	- `--concurrency` defaults from `KH_CONCURRENCY` or config value.
+Usage:
+- `kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--project ... --module ... --env ...] [--workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json] [--dry-run]`
 
-## Export
+Flags:
+- `--from` string — `http` or `local`
+- `--path` string — local file/dir for `--from=local`
+- `--url` string — HTTP source for `--from=http`
+- `--workspace-pattern` regex — infer workspace from filenames (default: `.*`)
+- `--project` string — annotate target project
+- `--module` string — annotate module (e.g., repo/path)
+- `--env` string — annotate environment
+- `--verify-checksum` — compute SHA256 and fail on mismatch
+- `--concurrency` int — parallel I/O (defaults from `KH_CONCURRENCY` or config)
+- `--report` path — write JSON report
+- `--dry-run` — preview without ingest
 
+### export tfstate
+Export Terraform state from KH to a destination backend.
 
-3) Using Go to install into $GOBIN (or $GOPATH/bin)
+Usage:
+- `kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]`
 
-```zsh
-- `kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters]`
-	- Targets prioritized for MVP: file and HTTP.
-	- Placeholders supported in `--out` / `--url`: `{module}`, `{workspace}` (falls back to `default` when absent).
-	- `--verify-checksum` verifies KH metadata checksum before write and destination checksum after write.
-	- `--overwrite` allows writing over existing files.
-	- `--idempotency-key` sets the `Idempotency-Key` header for HTTP writes.
-	- `--concurrency` defaults from `KH_CONCURRENCY` or config value.
+Flags:
+- `--to` string — `file` or `http`
+- `--out` path — file path template when `--to=file` (supports `{module}`, `{workspace}`)
+- `--url` string — destination URL when `--to=http` (supports `{module}`, `{workspace}`)
+- `--verify-checksum` — verify KH checksum pre-write and destination checksum post-write
+- `--overwrite` — allow overwriting existing files
+- `--idempotency-key` string — set `Idempotency-Key` header for HTTP writes
+- `--concurrency` int — parallel exports (defaults from `KH_CONCURRENCY` or config)
+- `--format` string — state format (default `v4`)
+- `--state-id` string — export a specific state
+- `--project`, `--module`, `--workspace` — filters for selection
+- `--dry-run` — preview without writing
+- `--lock` — acquire advisory lock per state during export
 
+### migrate backend
+Plan migrations between backends (scaffolding).
 
-4) Symlink the built binary (quick, but depends on repo path not moving)
+Usage: `kh migrate backend --from <src> --to <dest> [--dry-run]`
 
-```zsh
-## Migrate
+Flags:
+- `--from` string — source backend
+- `--to` string — destination backend
+- `--dry-run` — preview without changes
 
-- `kh migrate backend --from ... --to ... [--dry-run]`
+### verify
+Integrity checks for a given state.
 
-## Integrity & locking
+Usage: `kh verify <state-id> [--full]`
 
-- `kh verify <state-id> [--full]`
-- `kh lock <state-id>` / `kh unlock <state-id> [--force]`
+Flags:
+- `--full` — deep verification
+
+### lock / unlock
+Advisory locks on KH states.
+
+Usage:
+- `kh lock <state-id>`
+- `kh unlock <state-id> [--force]`
+
+Flags (unlock):
+- `--force` — force unlock
 
 ## Output & exits
 
-- `-o, --output table|json` everywhere; stable JSON for CI.
-- Exit codes: 0 ok, 2 partial, 3 validation error, 4 auth, 5 backend IO, 6 lock error.
+- `-o, --output table|json` everywhere; stable JSON for CI
+- Exit codes: 0 ok, 2 partial, 3 validation error, 4 auth, 5 backend IO, 6 lock error
 
 ## Debugging
 
-- `--debug` enables verbose debug logs to stderr.
-- Or set `KH_DEBUG=1` to turn on debug without adding the flag.
+- `--debug` enables verbose debug logs to stderr
+- Or set `KH_DEBUG=1` to turn on debug without adding the flag
 
 ## Completion
 
