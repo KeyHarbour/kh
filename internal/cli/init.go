@@ -16,7 +16,7 @@ import (
 // scaffoldTerraformProject creates a minimal Terraform project scaffold
 // under dir/<module>/<env> following best practices and using an HTTP backend
 // pointing to the KeyHarbour service.
-func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject string, force bool) (string, error) {
+func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
 	if name == "" {
 		return "", errors.New("name is required")
 	}
@@ -26,11 +26,16 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject s
 	if module == "" {
 		module = "infra"
 	}
-	if endpoint == "" {
-		endpoint = "https://api.keyharbour.ca"
+	if backendType == "" {
+		backendType = "http"
 	}
-	// Normalize endpoint (no trailing slash)
-	endpoint = strings.TrimRight(endpoint, "/")
+	if backendType == "http" {
+		if endpoint == "" {
+			endpoint = "https://api.keyharbour.ca"
+		}
+		// Normalize endpoint (no trailing slash)
+		endpoint = strings.TrimRight(endpoint, "/")
+	}
 
 	// Derive a stable state ID; this can be revisited later to match server conventions.
 	// Format: <khProject>:<module>:<env> or fallback to name if khProject empty.
@@ -49,8 +54,6 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject s
 
 	// Files to create
 	files := map[string]string{
-		filepath.Join(target, "backend.tf"):   terraformBackendTF(),
-		filepath.Join(target, "backend.hcl"):  terraformBackendHCL(endpoint, stateID),
 		filepath.Join(target, "versions.tf"):  terraformVersionsTF(),
 		filepath.Join(target, "providers.tf"): terraformProvidersTF(),
 		filepath.Join(target, "variables.tf"): terraformVariablesTF(),
@@ -58,6 +61,22 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject s
 		filepath.Join(target, "main.tf"):      terraformMainTF(name, env, module),
 		filepath.Join(target, "README.md"):    terraformReadme(name, env, module),
 		filepath.Join(target, ".gitignore"):   terraformGitIgnore(),
+	}
+	switch backendType {
+	case "http":
+		files[filepath.Join(target, "backend.tf")] = terraformBackendTF()
+		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCL(endpoint, stateID)
+	case "cloud":
+		if tfcOrg == "" {
+			return "", errors.New("--tfc-org (or TF_CLOUD_ORGANIZATION) is required for --backend=cloud")
+		}
+		if tfcWorkspace == "" {
+			// default workspace: name-module-env
+			tfcWorkspace = fmt.Sprintf("%s-%s-%s", sanitize(name), sanitize(module), sanitize(env))
+		}
+		files[filepath.Join(target, "cloud.tf")] = terraformCloudBlock(tfcOrg, tfcWorkspace)
+	default:
+		return "", fmt.Errorf("unsupported backend: %s (use http|cloud)", backendType)
 	}
 
 	for path, content := range files {
@@ -82,6 +101,17 @@ func terraformBackendTF() string {
 	return `terraform {
   backend "http" {}
 }`
+}
+
+func terraformCloudBlock(org, workspace string) string {
+	return fmt.Sprintf(`terraform {
+	cloud {
+		organization = "%s"
+		workspaces {
+			name = "%s"
+		}
+	}
+}`, org, workspace)
 }
 
 func terraformBackendHCL(endpoint, stateID string) string {
@@ -159,11 +189,11 @@ resource "null_resource" "placeholder" {
 func terraformReadme(name, env, module string) string {
 	return fmt.Sprintf(`# %s / %s / %s
 
-This folder was scaffolded by kh to bootstrap a Terraform project with an HTTP backend managed by KeyHarbour.
+This folder was scaffolded by kh to bootstrap a Terraform project with a backend managed by KeyHarbour or Terraform Cloud.
 
 How to use:
 
-1. Initialize backend with the generated backend.hcl:
+1. Initialize backend (HTTP backend uses backend.hcl):
 
    terraform init -backend-config=backend.hcl
 
@@ -172,7 +202,8 @@ How to use:
    terraform plan -var="project=%s" -var="environment=%s" -var="module=%s"
 
 Notes:
-- backend.tf uses partial configuration; backend.hcl carries the KeyHarbour addresses.
+- For HTTP backend: backend.tf uses partial configuration; backend.hcl carries the KeyHarbour addresses.
+- For Terraform Cloud backend: cloud.tf defines the cloud block (no backend.hcl required).
 - Commit .terraform.lock.hcl after the first init.
 `, name, module, env, name, env, module)
 }
@@ -206,6 +237,9 @@ func newInitProjectCmd() *cobra.Command {
 		org      string
 		khProj   string
 		force    bool
+		backend  string
+		tfcOrg   string
+		tfcWs    string
 	)
 	cmd := &cobra.Command{
 		Use:   "project",
@@ -221,7 +255,18 @@ func newInitProjectCmd() *cobra.Command {
 			if khProj == "" {
 				khProj = config.FromEnvOr(cfg, "KH_PROJECT", "")
 			}
-			target, err := scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProj, force)
+			// Defaults for TFC flags from environment when not provided
+			if tfcOrg == "" {
+				if v := os.Getenv("TF_CLOUD_ORGANIZATION"); v != "" {
+					tfcOrg = v
+				}
+			}
+			if tfcWs == "" {
+				if v := os.Getenv("TF_WORKSPACE"); v != "" {
+					tfcWs = v
+				}
+			}
+			target, err := scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProj, force, backend, tfcOrg, tfcWs)
 			if err != nil {
 				return err
 			}
@@ -237,6 +282,9 @@ func newInitProjectCmd() *cobra.Command {
 	cmd.Flags().StringVar(&org, "org", "", "KeyHarbour organization (defaults to KH_ORG)")
 	cmd.Flags().StringVar(&khProj, "kh-project", "", "KeyHarbour project (defaults to KH_PROJECT)")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing files")
+	cmd.Flags().StringVar(&backend, "backend", "http", "Backend type: http|cloud")
+	cmd.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (defaults to TF_CLOUD_ORGANIZATION)")
+	cmd.Flags().StringVar(&tfcWs, "tfc-workspace", "", "Terraform Cloud workspace name (defaults to <name>-<module>-<env> or TF_WORKSPACE)")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("env")

@@ -11,6 +11,7 @@ import (
 	"kh/internal/output"
 	"kh/internal/state"
 	"kh/internal/workerpool"
+	"os"
 	"regexp"
 	"time"
 
@@ -26,6 +27,10 @@ func newImportCmd() *cobra.Command {
 	var report string
 	var localPath string
 	var httpURL string
+	var tfcOrg string
+	var tfcWorkspace string
+	var tfcHost string
+	var tfcToken string
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import data into Key-Harbour",
@@ -62,8 +67,35 @@ func newImportCmd() *cobra.Command {
 					return exitcodes.With(exitcodes.ValidationError, errors.New("--url is required for --from=http"))
 				}
 				r = backend.NewHTTPReader(httpURL)
+			case "tfc":
+				if tfcOrg == "" {
+					tfcOrg = os.Getenv("TF_CLOUD_ORGANIZATION")
+				}
+				if tfcWorkspace == "" {
+					tfcWorkspace = os.Getenv("TF_WORKSPACE")
+				}
+				if tfcToken == "" {
+					// common envs: TF_API_TOKEN (preferred), TFC_TOKEN, TF_TOKEN_app_terraform_io
+					if v := os.Getenv("TF_API_TOKEN"); v != "" {
+						tfcToken = v
+					}
+					if tfcToken == "" {
+						if v := os.Getenv("TFC_TOKEN"); v != "" {
+							tfcToken = v
+						}
+					}
+					if tfcToken == "" {
+						if v := os.Getenv("TF_TOKEN_app_terraform_io"); v != "" {
+							tfcToken = v
+						}
+					}
+				}
+				if tfcOrg == "" || tfcWorkspace == "" || tfcToken == "" {
+					return exitcodes.With(exitcodes.ValidationError, errors.New("--tfc-org, --tfc-workspace and a token (TF_API_TOKEN/TFC_TOKEN) are required for --from=tfc"))
+				}
+				r = backend.NewTFCReader(tfcHost, tfcOrg, tfcWorkspace, tfcToken)
 			default:
-				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --from: %s (supported: local,http)", from))
+				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --from: %s (supported: local,http,tfc)", from))
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -128,7 +160,7 @@ func newImportCmd() *cobra.Command {
 
 	cmd.PersistentFlags().IntVar(&concurrency, "concurrency", 0, "Parallelism for I/O operations")
 
-	tfstate.Flags().StringVar(&from, "from", "", "Source backend: http|local (others TBD)")
+	tfstate.Flags().StringVar(&from, "from", "", "Source backend: http|local|tfc")
 	tfstate.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without writing")
 	tfstate.Flags().StringVar(&project, "project", "", "Key-Harbour project")
 	tfstate.Flags().StringVar(&module, "module", "", "Module identifier (e.g. repo/path)")
@@ -137,6 +169,11 @@ func newImportCmd() *cobra.Command {
 	tfstate.Flags().StringVar(&report, "report", "", "Write machine-readable report to file")
 	tfstate.Flags().StringVar(&localPath, "path", "", "Local file or directory for --from=local")
 	tfstate.Flags().StringVar(&httpURL, "url", "", "Source URL for --from=http")
+	// Terraform Cloud options for --from=tfc
+	tfstate.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)")
+	tfstate.Flags().StringVar(&tfcWorkspace, "tfc-workspace", "", "Terraform Cloud workspace name (or TF_WORKSPACE)")
+	tfstate.Flags().StringVar(&tfcHost, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL")
+	tfstate.Flags().StringVar(&tfcToken, "tfc-token", "", "Terraform Cloud API token (or TF_API_TOKEN/TFC_TOKEN)")
 	tfstate.Flags().BoolVar(&verifyChecksum, "verify-checksum", false, "Verify checksums before ingest")
 
 	cmd.AddCommand(tfstate)
