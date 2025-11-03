@@ -48,3 +48,8 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Go specific
+bin/
+coverage/
+
+tmp/

@@ -1,0 +1,64 @@
+image: golang:1.22
+
+definitions:
+  caches:
+    go-mod: /go/pkg/mod
+    go-build: /root/.cache/go-build
+
+pipelines:
+  default:
+    - step:
+        name: Build and Test
+        caches:
+          - go-mod
+          - go-build
+        script:
+          - go version
+          - make tidy
+          - make vet
+          - make fmt
+          - make build
+          - make test
+          - make coverage-report
+        artifacts:
+          - bin/kh
+          - coverage/**
+  pull-requests:
+    '**':
+      - step:
+          name: Build and Test (PR)
+          caches:
+            - go-mod
+            - go-build
+          script:
+            - go version
+            - make tidy
+            - make vet
+            - make fmt
+            - make build
+            - make test
+            - make coverage-report
+          artifacts:
+            - bin/kh
+            - coverage/**
+
+  tags:
+    'v*':
+      - step:
+          name: Build Release
+          caches:
+            - go-mod
+            - go-build
+          script:
+            - go version
+            - make tidy
+            - make vet
+            - make build
+            - make test
+            - make coverage-report
+            # Add version info to binary
+            - export VERSION=${BITBUCKET_TAG}
+            - go build -ldflags "-X main.version=${VERSION}" -o bin/kh ./cmd/kh
+          artifacts:
+            - bin/kh
+            - coverage/**
