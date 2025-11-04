@@ -65,7 +65,12 @@ func newStateShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <state-id>",
 		Short: "Show a state's JSON (Terraform v4)",
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return fmt.Errorf("state show requires 1 argument: <state-id>. Tip: run 'kh state ls' to list IDs")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.Load()
 			client := khclient.New(cfg)

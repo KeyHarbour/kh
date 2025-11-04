@@ -529,6 +529,28 @@ In Bitbucket → Pipelines → “Run pipeline”, choose your branch and start 
 - Pipeline not showing up?
 	- Verify `bitbucket-pipelines.yml` exists at the repository root
 	- Ensure Pipelines is enabled (Repository settings → Pipelines)
+- Terraform Cloud 409 Conflict (lineage mismatch) on upload:
+	- Why it happens: Your local .tfstate has a different `lineage` than the current workspace in Terraform Cloud, so TFC rejects the new state version.
+	- Quick fix: use the helper to adopt the current workspace lineage into your local state before upload:
+
+		```zsh
+		export TF_API_TOKEN=xxxx
+		kh tfc upload-state \
+			--file out/<workspace>.tfstate \
+			--tfc-org <org> \
+			--tfc-workspace <workspace> \
+			--adopt-lineage \
+			-o json
+		```
+
+		This fetches the current workspace lineage/serial and rewrites your local state accordingly, then uploads a new version.
+	- Alternative: if you're moving a workspace or intentionally changing backends, run Terraform with migration flags from the project directory:
+
+		```zsh
+		terraform init -migrate-state
+		```
+
+		After migration, retry the upload without adopt-lineage.
 	- Confirm you pushed to the branch you’re viewing in Pipelines
 	- YAML must be valid; caches `go-mod` and `go-build` are defined under `definitions.caches`
 

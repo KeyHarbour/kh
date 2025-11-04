@@ -12,7 +12,12 @@ func newVerifyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify <state-id>",
 		Short: "Validate a state's integrity",
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return fmt.Errorf("verify requires 1 argument: <state-id>. Tip: run 'kh state ls' to list IDs")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
 			if full {

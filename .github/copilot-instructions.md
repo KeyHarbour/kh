@@ -21,11 +21,12 @@ This project is the KeyHarbour CLI - a Go-based command-line tool for managing T
   - Configuration: `internal/config/`
 - Config path: `${XDG_CONFIG_HOME}/kh/config` (JSON)
 - Environment overrides: `KH_ENDPOINT`, `KH_TOKEN`, `KH_ORG`, `KH_PROJECT`, `KH_CONCURRENCY`
-- Available commands: `login`, `whoami`, `config get|set`, `state ls|show`, `import tfstate`, `export tfstate`, `migrate backend`, `verify`, `lock|unlock`, and `completion`
-- Supported backends: `local` and `http` for import/export
-  - Import: `kh import tfstate --from=local --path=...` or `--from=http --url=...`
-  - Export: `kh export tfstate --to=file --out=...` or `--to=http --url=...` (supports dry-run JSON plans)
-- Authentication: PAT-first via `kh login --token ...` (device flow is stubbed)
+- Available commands: `login`, `whoami`, `config get|set`, `state ls|show`, `import tfstate`, `export tfstate`, `migrate backend`, `verify`, `lock|unlock`, `completion`, `init project`, `tfc upload-state`, and `http upload-state`
+- Supported backends: `local`, `http`, and `tfc` (Terraform Cloud)
+  - Import: `kh import tfstate --from=local --path=...`, `--from=http --url=...`, or `--from=tfc --tfc-org ... --tfc-workspace ...` (TFC import is read-only; supports `--out` to save files)
+  - Export: `kh export tfstate --to=file --out=...`, `--to=http --url=...`, or `--to=tfc --tfc-org ... --tfc-workspace ...` (supports dry-run JSON plans)
+  - Helpers: `kh http upload-state --file ... --url ...` and `kh tfc upload-state --file ... --tfc-org ... --tfc-workspace ...` (+ `--adopt-lineage`)
+  - Authentication: PAT-first via `kh login --token ...` for KH; Terraform Cloud via `TF_API_TOKEN`/`TFC_TOKEN`/`TF_TOKEN_app_terraform_io`
 
 ## Project conventions
 - Follow ADR-001 choices: Go, cobra/viper, retryablehttp
@@ -42,6 +43,14 @@ This project is the KeyHarbour CLI - a Go-based command-line tool for managing T
 
 ## Documentation hygiene
 - Each time you add or modify a function, command, flag, or user-visible behavior, verify that `README.md` remains accurate. If there is any drift, update the relevant sections of `README.md` in the same change/PR. Prefer adding concise examples that match the CLI help output.
+
+## Notes on Terraform Cloud integration
+- Reader uses `GET /api/v2/workspaces/{id}/current-state-version` and includes `Authorization: Bearer <token>` for protected download URLs.
+- Writer uses `POST /api/v2/workspaces/{id}/state-versions` with base64 state and MD5; includes optional `serial`, `lineage`, and `terraform-version` when present.
+- Env fallbacks: `TF_CLOUD_ORGANIZATION` → `--tfc-org`, `TF_WORKSPACE` → `--tfc-workspace`, and token via `TF_API_TOKEN`/`TFC_TOKEN`/`TF_TOKEN_app_terraform_io`.
+
+## Example scaffolding
+- `kh init project --backend http|cloud` will generate either HTTP backend files (`backend.tf` + `backend.hcl`) or a Terraform Cloud `cloud.tf` file. It respects env defaults where flags are omitted.
 
 ## Integration points
 - HTTP backend integration for remote Terraform state operations
