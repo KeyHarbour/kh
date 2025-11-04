@@ -12,7 +12,9 @@ import (
 	"kh/internal/state"
 	"kh/internal/workerpool"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -31,6 +33,8 @@ func newImportCmd() *cobra.Command {
 	var tfcWorkspace string
 	var tfcHost string
 	var tfcToken string
+	var outPath string
+	var overwrite bool
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import data into Key-Harbour",
@@ -140,6 +144,37 @@ func newImportCmd() *cobra.Command {
 						return fmt.Errorf("checksum mismatch for %s", obj.Key)
 					}
 				}
+				// Optional: write to file if --out provided
+				if outPath != "" {
+					path := outPath
+					ws := obj.Workspace
+					if ws == "" {
+						ws = "default"
+					}
+					path = strings.ReplaceAll(path, "{workspace}", ws)
+					// if source object has a key/module, allow {key} placeholder
+					if obj.Key != "" {
+						path = strings.ReplaceAll(path, "{key}", sanitizePath(obj.Key))
+					}
+					if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+						return err
+					}
+					if !overwrite {
+						if _, err := os.Stat(path); err == nil {
+							return fmt.Errorf("file exists: %s (use --overwrite)", path)
+						}
+					}
+					if err := os.WriteFile(path, data, 0o644); err != nil {
+						return err
+					}
+					logging.Debugf("wrote file %s bytes=%d", path, len(data))
+					return printer.JSON(map[string]any{
+						"read":     obj.URL,
+						"written":  path,
+						"bytes":    obj.Size,
+						"checksum": obj.Checksum,
+					})
+				}
 				// TODO: send to KH ingest API when available
 				logging.Debugf("read ok url=%s bytes=%d checksum=%s", obj.URL, obj.Size, obj.Checksum)
 				return printer.JSON(map[string]any{
@@ -175,7 +210,22 @@ func newImportCmd() *cobra.Command {
 	tfstate.Flags().StringVar(&tfcHost, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL")
 	tfstate.Flags().StringVar(&tfcToken, "tfc-token", "", "Terraform Cloud API token (or TF_API_TOKEN/TFC_TOKEN)")
 	tfstate.Flags().BoolVar(&verifyChecksum, "verify-checksum", false, "Verify checksums before ingest")
+	tfstate.Flags().StringVar(&outPath, "out", "", "Optional file path template to save downloaded state (supports {workspace} and {key})")
+	tfstate.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing files when using --out")
 
 	cmd.AddCommand(tfstate)
 	return cmd
+}
+
+// sanitizePath converts arbitrary keys/URLs into safe file name components.
+func sanitizePath(s string) string {
+	// Replace common separators and URL fragments
+	s = strings.ReplaceAll(s, "://", "_")
+	s = strings.ReplaceAll(s, "/", "_")
+	s = strings.ReplaceAll(s, "?", "_")
+	s = strings.ReplaceAll(s, "&", "_")
+	s = strings.ReplaceAll(s, "=", "_")
+	s = strings.ReplaceAll(s, ":", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	return s
 }

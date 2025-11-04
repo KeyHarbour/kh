@@ -55,6 +55,12 @@ func (r *TFCReader) Get(ctx context.Context, key string) ([]byte, Object, error)
 	if err != nil {
 		return nil, Object{}, err
 	}
+	// Some download URLs require auth (e.g., /api/v2/state-versions/:id/download), others are pre-signed.
+	// Including Authorization is safe and fixes 401s on protected URLs.
+	if r.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+r.Token)
+	}
+	req.Header.Set("Accept", "application/octet-stream")
 	resp, err := r.HTTP.Do(req)
 	if err != nil {
 		return nil, Object{}, err
@@ -100,7 +106,8 @@ func (r *TFCReader) getWorkspaceID(ctx context.Context, org, name string) (strin
 }
 
 func (r *TFCReader) getCurrentStateDownloadURL(ctx context.Context, wsID string) (string, error) {
-	u := r.Host + "/api/v2/workspaces/" + url.PathEscape(wsID) + "/state-versions?filter[current]=true"
+	// Use the dedicated endpoint for the current state version
+	u := r.Host + "/api/v2/workspaces/" + url.PathEscape(wsID) + "/current-state-version"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	req.Header.Set("Authorization", "Bearer "+r.Token)
 	req.Header.Set("Content-Type", "application/vnd.api+json")
@@ -110,10 +117,10 @@ func (r *TFCReader) getCurrentStateDownloadURL(ctx context.Context, wsID string)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("tfc state-versions: %s", resp.Status)
+		return "", fmt.Errorf("tfc current-state-version: %s", resp.Status)
 	}
 	var out struct {
-		Data []struct {
+		Data struct {
 			Attributes struct {
 				HostedStateDownloadURL string `json:"hosted-state-download-url"`
 			} `json:"attributes"`
@@ -122,10 +129,10 @@ func (r *TFCReader) getCurrentStateDownloadURL(ctx context.Context, wsID string)
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
-	if len(out.Data) == 0 || out.Data[0].Attributes.HostedStateDownloadURL == "" {
+	if out.Data.Attributes.HostedStateDownloadURL == "" {
 		return "", errors.New("tfc: no current state version")
 	}
-	return out.Data[0].Attributes.HostedStateDownloadURL, nil
+	return out.Data.Attributes.HostedStateDownloadURL, nil
 }
 
 // end

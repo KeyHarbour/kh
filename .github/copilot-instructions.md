@@ -40,6 +40,9 @@ This project is the KeyHarbour CLI - a Go-based command-line tool for managing T
 - Testing: Include unit tests alongside code, integration tests where appropriate
 - Configuration: JSON-based config with environment variable overrides
 
+## Documentation hygiene
+- Each time you add or modify a function, command, flag, or user-visible behavior, verify that `README.md` remains accurate. If there is any drift, update the relevant sections of `README.md` in the same change/PR. Prefer adding concise examples that match the CLI help output.
+
 ## Integration points
 - HTTP backend integration for remote Terraform state operations
 - Future API contracts should be defined via OpenAPI/Connect/gRPC (see ADR scope)

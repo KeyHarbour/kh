@@ -2,7 +2,7 @@
 
 CLI for moving Terraform state between common backends and Key-Harbour.
 
-Status: MVP scaffold (commands parse flags, dry-run supported; some KH APIs not wired yet).
+Status: MVP scaffold (commands parse flags, dry-run supported; some KH APIs not wired yet). Now includes Terraform Cloud scaffolding (init --backend cloud) and read-only import from Terraform Cloud.
 
 ## Getting Started
 
@@ -58,7 +58,8 @@ Quick start:
 kh --debug --help
 kh login --token <PAT>
 kh state ls -o json
-kh init project -n demo -e dev -m app --dir ./infra
+kh init project -n demo -e dev -m app --dir ./infra --backend http
+kh init project -n demo -e dev -m app --dir ./infra --backend cloud --tfc-org MyOrg --tfc-workspace demo-dev
 ```
 
 ## Auth & config
@@ -137,20 +138,29 @@ Flags (show):
 ```
 
 ### import tfstate
-Import Terraform state objects from a source backend. Ingest into KH is pending; currently reads/validates and reports.
+Import Terraform state objects from a source backend. Ingest into KH is pending; currently reads/validates and reports. Supports local files, generic HTTP, and Terraform Cloud (read-only).
 
 Usage:
 
 ```zsh
-kh import tfstate --from=http|local [--path <dir|file> | --url <src>] [--project ... --module ... --env ...] [--workspace-pattern '.*'] [--verify-checksum] [--concurrency N] [--report out.json] [--dry-run]
+# Local or generic HTTP
+kh import tfstate --from=http|local [--path <dir|file> | --url <src>]
+	[--project ... --module ... --env ...]
+	[--workspace-pattern '.*'] [--verify-checksum]
+	[--concurrency N] [--report out.json] [--out pattern] [--overwrite] [--dry-run]
+
+# Terraform Cloud (read-only)
+kh import tfstate --from=tfc \
+	--tfc-org <org> \
+	--tfc-workspace <workspace> \
+	[--tfc-host app.terraform.io] \
+	[--out 'out/{workspace}.tfstate'] [--overwrite] [-o json]
 ```
 
-Flags:
+Flags (common):
 
 ```text
---from string              http or local
---path string              local file/dir for --from=local
---url string               HTTP source for --from=http
+--from string              http | local | tfc
 --workspace-pattern regex  infer workspace from filenames (default: .*)
 --project string           annotate target project
 --module string            annotate module (e.g., repo/path)
@@ -158,7 +168,43 @@ Flags:
 --verify-checksum          compute SHA256 and fail on mismatch
 --concurrency int          parallel I/O (defaults from KH_CONCURRENCY or config)
 --report path              write JSON report
+--out path                 optional: save fetched state(s) to files; supports {module}, {workspace}
+--overwrite                allow overwriting existing files when using --out
 --dry-run                  preview without ingest
+```
+
+Additional flags (Terraform Cloud):
+
+```text
+--tfc-org string           Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-workspace string     Terraform Cloud workspace name (or TF_WORKSPACE)
+--tfc-host string          Terraform Cloud hostname (default: app.terraform.io)
+--tfc-token string         API token; can be provided via env instead
+```
+
+Terraform Cloud auth environment variables (any of the following):
+
+```text
+TF_API_TOKEN                 standard Terraform Cloud token env
+TFC_TOKEN                    alias token env
+TF_TOKEN_app_terraform_io    host-scoped token env
+```
+
+Examples:
+
+```zsh
+# Save current state from TFC into out/test-workspace.tfstate
+export TF_API_TOKEN=xxxx
+kh import tfstate \
+	--from=tfc \
+	--tfc-org KeyHarbour \
+	--tfc-workspace test-workspace \
+	--out 'out/{workspace}.tfstate' \
+	--overwrite \
+	-o json
+
+# Import from a directory of .tfstate files and write a report
+kh import tfstate --from=local --path ./states --report ./import-report.json -o json
 ```
 
 ### export tfstate
@@ -167,13 +213,24 @@ Export Terraform state from KH to a destination backend.
 Usage:
 
 ```zsh
-kh export tfstate --to=file|http [--out /path/{module}-{workspace}.tfstate | --url <dest>] [--verify-checksum] [--overwrite] [--idempotency-key <key>] [--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]
+# File or generic HTTP targets
+kh export tfstate --to=file|http \
+	[--out /path/{module}-{workspace}.tfstate | --url <dest>] \
+	[--verify-checksum] [--overwrite] [--idempotency-key <key>] \
+	[--concurrency N] [--dry-run] [--format v4] [--state-id ... | filters] [--lock]
+
+# Terraform Cloud target
+kh export tfstate --to=tfc \
+	--tfc-org <org> \
+	--tfc-workspace <workspace> \
+	[--tfc-host app.terraform.io] \
+	[--verify-checksum] [--concurrency N] [--state-id ... | filters]
 ```
 
 Flags:
 
 ```text
---to string                 file or http
+--to string                 file | http | tfc
 --out path                  file path template when --to=file (supports {module}, {workspace})
 --url string                destination URL when --to=http (supports {module}, {workspace})
 --verify-checksum           verify KH checksum pre-write and destination checksum post-write
@@ -185,6 +242,63 @@ Flags:
 --project, --module, --workspace   filters for selection
 --dry-run                   preview without writing
 --lock                      acquire advisory lock per state during export
+--tfc-org string            (tfc) Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-workspace string      (tfc) Terraform Cloud workspace name (or TF_WORKSPACE)
+--tfc-host string           (tfc) Terraform Cloud hostname (default: app.terraform.io)
+--tfc-token string          (tfc) API token; can be provided via TF_API_TOKEN/TFC_TOKEN
+```
+
+Examples:
+
+```zsh
+# Export one state to Terraform Cloud workspace
+export TF_API_TOKEN=xxxx
+kh export tfstate \
+	--to=tfc \
+	--tfc-org KeyHarbour \
+	--tfc-workspace mvp-workspace \
+	--state-id <state-id> \
+	-o json
+
+# Export multiple states to files with placeholders
+kh export tfstate --to=file \
+	--out 'out/{module}-{workspace}.tfstate' \
+	--project myproj -o json
+```
+
+### tfc upload-state
+
+Upload a local `.tfstate` file directly to a Terraform Cloud workspace (creates a new state version).
+
+Usage:
+
+```zsh
+kh tfc upload-state \
+	--file out/mvp-workspace.tfstate \
+	--tfc-org KeyHarbour \
+	--tfc-workspace export-workspace \
+	[--tfc-host app.terraform.io]
+```
+
+Flags:
+
+```text
+--file string            Path to local .tfstate file
+--tfc-org string         Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-workspace string   Terraform Cloud workspace name (or TF_WORKSPACE)
+--tfc-host string        Terraform Cloud hostname (default: app.terraform.io)
+--tfc-token string       API token; can be provided via TF_API_TOKEN/TFC_TOKEN
+```
+
+Example:
+
+```zsh
+export TF_API_TOKEN=xxxx
+kh tfc upload-state \
+	--file out/mvp-workspace.tfstate \
+	--tfc-org KeyHarbour \
+	--tfc-workspace export-workspace \
+	-o json
 ```
 
 ### migrate backend
@@ -229,22 +343,33 @@ Flags (unlock):
 ```
 
 ### init project
-Scaffold a minimal Terraform project that uses the KeyHarbour HTTP backend (backend.hcl for addresses, backend.tf for partial configuration).
+Scaffold a minimal Terraform project that uses either the KeyHarbour HTTP backend or Terraform Cloud backend.
 
 Usage:
 
 ```zsh
-kh init project -n <project-name> -e <environment> [--module <name>] [--dir <path>] [--endpoint <url>] [--org <org>] [--kh-project <kh_project>] [--force]
+kh init project \
+	-n <project-name> \
+	-e <environment> \
+	[--module <name>] [--dir <path>] \
+	[--backend http|cloud] \
+	[--endpoint <url>] [--org <org>] [--kh-project <kh_project>] \
+	[--tfc-org <org>] [--tfc-workspace <ws>] \
+	[--force]
 ```
 
 Examples:
 
 ```zsh
-# Scaffold into ./tmp/app/dev with default endpoint https://api.keyharbour.ca
-kh init project -n sample -e dev -m app --dir ./tmp
+# Scaffold HTTP backend into ./tmp/app/dev with default endpoint https://api.keyharbour.ca
+kh init project -n sample -e dev -m app --dir ./tmp --backend http
 
 # Use values from config/env when flags are omitted
 KH_ENDPOINT=https://api.keyharbour.ca kh init project -n sample -e staging
+
+# Scaffold Terraform Cloud backend (generates cloud.tf)
+kh init project -n sample -e dev -m app --dir ./tmp \
+	--backend cloud --tfc-org KeyHarbour --tfc-workspace sample-dev
 ```
 
 Generated layout (dir/module/env):
@@ -253,8 +378,9 @@ Generated layout (dir/module/env):
 <dir>/
 	<module>/
 		<env>/
-			backend.tf        # terraform { backend "http" {} }
-			backend.hcl       # address/lock/unlock URLs and retry settings
+			backend.tf        # terraform { backend "http" {} } when --backend=http
+			backend.hcl       # address/lock/unlock URLs and retry settings (HTTP)
+			cloud.tf          # terraform { cloud { ... } } when --backend=cloud
 			versions.tf       # TF/core and providers constraints
 			providers.tf      # minimal provider set (hashicorp/null)
 			variables.tf      # project/environment/module variables
@@ -264,7 +390,7 @@ Generated layout (dir/module/env):
 			README.md         # quick usage notes
 ```
 
-Backend configuration (backend.hcl):
+Backend configuration (backend.hcl for HTTP backend):
 
 ```hcl
 address        = "https://api.keyharbour.ca/api/v1/states/<id>"
@@ -279,8 +405,30 @@ Initialize and plan:
 
 ```zsh
 cd <dir>/<module>/<env>
-terraform init -backend-config=backend.hcl
+terraform init -backend-config=backend.hcl   # for HTTP backend
 terraform plan -var="project=<name>" -var="environment=<env>" -var="module=<module>"
+
+# For Terraform Cloud backend, terraform init uses the generated cloud.tf automatically
+terraform init
+terraform plan -var="project=<name>" -var="environment=<env>" -var="module=<module>"
+
+Env fallbacks:
+
+```text
+# For init --backend cloud
+TF_CLOUD_ORGANIZATION  → default for --tfc-org
+TF_WORKSPACE           → default for --tfc-workspace
+
+# For init --backend http
+KH_ENDPOINT            → default for --endpoint
+KH_ORG, KH_PROJECT     → used in generated defaults
+```
+
+Troubleshooting:
+
+- Unknown flag errors (e.g., --out): ensure you're running the locally built binary `./bin/kh` or reinstall to PATH.
+- Terraform Cloud 401 Unauthorized during import: make sure a token env is exported (TF_API_TOKEN, TFC_TOKEN, or TF_TOKEN_app_terraform_io).
+- Terraform Cloud 404 on state version: workspace must exist and have at least one state; we query the current-state-version endpoint.
 ```
 
 ## Output & exits
@@ -351,3 +499,5 @@ In Bitbucket → Pipelines → “Run pipeline”, choose your branch and start 
 	- Ensure Pipelines is enabled (Repository settings → Pipelines)
 	- Confirm you pushed to the branch you’re viewing in Pipelines
 	- YAML must be valid; caches `go-mod` and `go-build` are defined under `definitions.caches`
+
+zvtef4uLTFrAGw.atlasv1.GzBkeD9ciGVSvbSE4RhK9MahRs68HsgN58o9kjfcyIzC8miwfXi74K3fiCW64h1uLQI

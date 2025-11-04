@@ -12,6 +12,7 @@ import (
 	"kh/internal/output"
 	"kh/internal/state"
 	"kh/internal/workerpool"
+	"os"
 	"strings"
 	"time"
 
@@ -25,6 +26,8 @@ func newExportCmd() *cobra.Command {
 	var project, module, workspace, stateID string
 	var concurrency int
 	var lock bool
+	// Terraform Cloud flags
+	var tfcOrg, tfcWorkspace, tfcHost, tfcToken string
 
 	cmd := &cobra.Command{Use: "export", Short: "Export data from Key-Harbour"}
 
@@ -74,6 +77,19 @@ func newExportCmd() *cobra.Command {
 				metas = list
 			}
 			logging.Debugf("export metas: %d states to process (concurrency=%d)", len(metas), concurrency)
+			if len(metas) == 0 {
+				// Nothing to export; return a clean JSON summary rather than an error
+				return printer.JSON(map[string]any{
+					"action":    "export",
+					"target":    to,
+					"project":   project,
+					"module":    module,
+					"workspace": workspace,
+					"state_id":  stateID,
+					"count":     0,
+					"note":      "no states found in KeyHarbour matching the filters",
+				})
+			}
 
 			var w backend.Writer
 			switch to {
@@ -91,8 +107,36 @@ func newExportCmd() *cobra.Command {
 					headers["Idempotency-Key"] = idempotencyKey
 				}
 				w = backend.NewHTTPWriterWithHeaders(httpURL, headers)
+			case "tfc":
+				// Defaults from env similar to import
+				if tfcOrg == "" {
+					if v := os.Getenv("TF_CLOUD_ORGANIZATION"); v != "" {
+						tfcOrg = v
+					} else if v := os.Getenv("KH_TFC_ORG"); v != "" {
+						tfcOrg = v
+					}
+				}
+				if tfcWorkspace == "" {
+					tfcWorkspace = os.Getenv("TF_WORKSPACE")
+				}
+				if tfcToken == "" {
+					if v := os.Getenv("TF_API_TOKEN"); v != "" {
+						tfcToken = v
+					} else if v := os.Getenv("TFC_TOKEN"); v != "" {
+						tfcToken = v
+					} else if v := os.Getenv("TF_TOKEN_app_terraform_io"); v != "" {
+						tfcToken = v
+					}
+				}
+				if tfcHost == "" {
+					tfcHost = "https://app.terraform.io"
+				}
+				if tfcOrg == "" || tfcWorkspace == "" || tfcToken == "" {
+					return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("--tfc-org, --tfc-workspace and a token (TF_API_TOKEN/TFC_TOKEN) are required for --to=tfc"))
+				}
+				w = backend.NewTFCWriter(tfcHost, tfcOrg, tfcWorkspace, tfcToken)
 			default:
-				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --to: %s (supported: file,http)", to))
+				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --to: %s (supported: file,http,tfc)", to))
 			}
 
 			results := workerpool.Run(metas, concurrency, func(meta khclient.StateMeta) error {
@@ -112,6 +156,10 @@ func newExportCmd() *cobra.Command {
 					ws = "default"
 				}
 				key = strings.ReplaceAll(key, "{workspace}", ws)
+				if to == "tfc" {
+					// key is not used by TFC writer; set to workspace placeholder for logs only
+					key = ws
+				}
 				logging.Debugf("exporting state id=%s -> %s", meta.ID, key)
 
 				b, _, err := client.GetStateRaw(ctx, meta.ID)
@@ -152,7 +200,7 @@ func newExportCmd() *cobra.Command {
 		},
 	}
 
-	tfstate.Flags().StringVar(&to, "to", "file", "Target: file|s3|gcs|azblob|http")
+	tfstate.Flags().StringVar(&to, "to", "file", "Target: file|http|tfc")
 	tfstate.Flags().StringVar(&httpURL, "url", "", "Target URL for --to=http")
 	tfstate.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without writing")
 	tfstate.Flags().StringVar(&format, "format", "v4", "State format: v4")
@@ -166,6 +214,11 @@ func newExportCmd() *cobra.Command {
 	tfstate.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Set Idempotency-Key header for HTTP targets")
 	tfstate.Flags().IntVar(&concurrency, "concurrency", 0, "Parallelism for I/O operations (defaults from KH_CONCURRENCY)")
 	tfstate.Flags().BoolVar(&lock, "lock", false, "Acquire advisory lock per state during export")
+	// Terraform Cloud target flags
+	tfstate.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)")
+	tfstate.Flags().StringVar(&tfcWorkspace, "tfc-workspace", "", "Terraform Cloud workspace name (or TF_WORKSPACE)")
+	tfstate.Flags().StringVar(&tfcHost, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL")
+	tfstate.Flags().StringVar(&tfcToken, "tfc-token", "", "Terraform Cloud API token (or TF_API_TOKEN/TFC_TOKEN)")
 
 	cmd.AddCommand(tfstate)
 	return cmd

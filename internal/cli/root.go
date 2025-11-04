@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUnlockCmd())
 	cmd.AddCommand(newCompletionCmd(cmd))
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newTFCCmd())
 
 	return cmd
 }
