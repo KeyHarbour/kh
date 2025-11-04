@@ -248,6 +248,38 @@ Flags:
 --tfc-token string          (tfc) API token; can be provided via TF_API_TOKEN/TFC_TOKEN
 ```
 
+### http upload-state
+
+Upload a local `.tfstate` file directly to an HTTP endpoint (useful with the included example receiver or your own service).
+
+Usage:
+
+```zsh
+kh http upload-state \
+	--file ./tmp/app/dev/terraform.tfstate \
+	--url 'http://localhost:8080/states/app/dev.tfstate' \
+	[--idempotency-key <key>] \
+	[--content-type 'application/vnd.terraform.state+json;version=4'] \
+	-o json
+```
+
+Example flow with the bundled receiver:
+
+```zsh
+# 1) Start the receiver in another terminal (listens on :8080)
+go build ./examples/http-receiver
+./http-receiver
+
+# 2) Upload your local state
+kh http upload-state \
+	--file ./tmp/app/dev/terraform.tfstate \
+	--url 'http://localhost:8080/states/app/dev.tfstate' \
+	-o json
+
+# 3) Verify
+curl -sS http://localhost:8080/states/app/dev.tfstate | jq .
+```
+
 Examples:
 
 ```zsh

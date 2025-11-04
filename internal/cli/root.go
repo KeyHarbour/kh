@@ -54,6 +54,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newCompletionCmd(cmd))
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newTFCCmd())
+	cmd.AddCommand(newHTTPCmd())
 
 	return cmd
 }
