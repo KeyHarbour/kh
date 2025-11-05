@@ -29,6 +29,10 @@ func (c *Client) ListStates(ctx context.Context, req ListStatesRequest) ([]State
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		// Treat 404 Not Found as no states present for the given filters
+		return []StateMeta{}, nil
+	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("list states: %s", resp.Status)
 	}
