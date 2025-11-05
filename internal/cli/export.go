@@ -26,6 +26,7 @@ func newExportCmd() *cobra.Command {
 	var project, module, workspace, stateID string
 	var concurrency int
 	var lock bool
+	var verifyAfterUpload bool
 	// Terraform Cloud flags
 	var tfcOrg, tfcWorkspace, tfcHost, tfcToken string
 
@@ -106,6 +107,7 @@ func newExportCmd() *cobra.Command {
 				if idempotencyKey != "" {
 					headers["Idempotency-Key"] = idempotencyKey
 				}
+				// Use base headers; per-upload we may add a checksum header when verifying
 				w = backend.NewHTTPWriterWithHeaders(httpURL, headers)
 			case "tfc":
 				// Defaults from env similar to import
@@ -173,9 +175,70 @@ func newExportCmd() *cobra.Command {
 					}
 				}
 
+				// If HTTP target and verification requested, include checksum header per upload
+				if to == "http" && verifyAfterUpload {
+					localSum := state.SHA256Hex(b)
+					headersCopy := map[string]string{}
+					// copy base headers from the writer if present (idempotency)
+					if hw, ok := w.(*backend.HTTPWriter); ok {
+						for k, v := range hw.Headers {
+							headersCopy[k] = v
+						}
+					}
+					headersCopy["X-Checksum-Sha256"] = localSum
+					per := backend.NewHTTPWriterWithHeaders(httpURL, headersCopy)
+					obj, err := per.Put(ctx, key, b, overwrite)
+					if err != nil {
+						return err
+					}
+					// If server echoed checksum equal to localSum, we already validated it
+					if obj.Checksum != "" {
+						if obj.Checksum != localSum {
+							return fmt.Errorf("verification failed: server checksum mismatch (local=%s server=%s)", localSum, obj.Checksum)
+						}
+						return printer.JSON(map[string]any{
+							"written":          obj.URL,
+							"bytes":            obj.Size,
+							"checksum":         obj.Checksum,
+							"server_validated": true,
+						})
+					}
+					// Server didn't echo checksum; perform read-back verification now
+					r := backend.NewHTTPReader(key)
+					_, gotObj, err := r.Get(ctx, key)
+					if err != nil {
+						return fmt.Errorf("verification failed: read-back error: %w", err)
+					}
+					if obj.Checksum != gotObj.Checksum {
+						return fmt.Errorf("verification failed: checksum mismatch (put=%s get=%s)", obj.Checksum, gotObj.Checksum)
+					}
+					return printer.JSON(map[string]any{
+						"written":          obj.URL,
+						"bytes":            obj.Size,
+						"checksum":         obj.Checksum,
+						"server_validated": true,
+					})
+				}
+				// Generic path: write using the configured writer (or fallback)
 				obj, err := w.Put(ctx, key, b, overwrite)
 				if err != nil {
 					return err
+				}
+				// Optionally verify uploaded content for HTTP targets by reading back and
+				// comparing SHA-256 checksums if server did not echo a checksum.
+				if verifyAfterUpload && to == "http" {
+					// If server already provided a checksum in the Put response, we already validated earlier.
+					// Otherwise perform read-back verification.
+					if obj.Checksum == "" {
+						r := backend.NewHTTPReader(key)
+						_, gotObj, err := r.Get(ctx, key)
+						if err != nil {
+							return fmt.Errorf("verification failed: read-back error: %w", err)
+						}
+						if obj.Checksum != gotObj.Checksum {
+							return fmt.Errorf("verification failed: checksum mismatch (put=%s get=%s)", obj.Checksum, gotObj.Checksum)
+						}
+					}
 				}
 				if verifyChecksum {
 					sum := state.SHA256Hex(b)
@@ -212,6 +275,7 @@ func newExportCmd() *cobra.Command {
 	tfstate.Flags().BoolVar(&verifyChecksum, "verify-checksum", false, "Verify checksums on export")
 	tfstate.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite existing files/targets")
 	tfstate.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Set Idempotency-Key header for HTTP targets")
+	tfstate.Flags().BoolVar(&verifyAfterUpload, "verify-after-upload", true, "Read the uploaded URL back and verify SHA-256 checksum (http targets only) (default: true)")
 	tfstate.Flags().IntVar(&concurrency, "concurrency", 0, "Parallelism for I/O operations (defaults from KH_CONCURRENCY)")
 	tfstate.Flags().BoolVar(&lock, "lock", false, "Acquire advisory lock per state during export")
 	// Terraform Cloud target flags
