@@ -60,6 +60,12 @@ kh login --token <PAT>
 kh state ls -o json
 kh init project -n demo -e dev -m app --dir ./infra --backend http
 kh init project -n demo -e dev -m app --dir ./infra --backend cloud --tfc-org MyOrg --tfc-workspace demo-dev
+
+# Show version
+```zsh
+kh --version
+kh --version -o json
+```
 ```
 
 ## Auth & config
@@ -463,6 +469,64 @@ Troubleshooting:
 - Terraform Cloud 404 on state version: workspace must exist and have at least one state; we query the current-state-version endpoint.
 ```
 
+### Upload verification (X-Checksum-Sha256)
+
+Key-Harbour includes an optional upload verification mechanism used for HTTP/TFC uploads to protect against corrupted or truncated state files during transfer.
+
+- What it is:
+	- KH computes a SHA-256 checksum (hex) of the state file and, when verification is enabled, sends it in the `X-Checksum-Sha256` HTTP header with the PUT/POST upload request.
+	- If the receiving server validates the checksum and echoes the same `X-Checksum-Sha256` value in its response headers, KH treats the upload as server-validated and skips a separate GET/read-back step.
+	- If the server does not echo the header, or returns a different value, KH performs a GET/read-back and compares checksums. A mismatch causes the upload to fail.
+
+- Why it matters:
+	- Avoids accidental corruption of Terraform state during network transfers. Trusting a server-echoed checksum saves an extra round-trip when the server proves it validated the payload.
+
+- Client flags and defaults:
+	- `--verify-after-upload` enables this behavior. It is enabled by default for `kh http upload-state` and for HTTP export paths in `kh export tfstate`.
+	- To disable verification for a single run: add `--verify-after-upload=false` to the command.
+
+- Server expectations (recommended):
+	- Validate the received payload's SHA-256 against the supplied `X-Checksum-Sha256` header before persisting.
+	- If validation succeeds, include the same header in the response: `X-Checksum-Sha256: <hex>` and return 2xx.
+	- If validation fails, return a non-2xx (for example 409 or 400) and do not persist the invalid payload.
+
+- CLI JSON output:
+	- When an upload succeeds and the server echoed/validated the checksum, KH includes `"server_validated": true` in the command's JSON result. If KH had to perform read-back verification (or the server did not echo the header), `server_validated` will be `false`.
+
+- Example (using the bundled receiver):
+
+	1) Start the example receiver (it validates and echoes checksums):
+
+		 go build ./examples/http-receiver
+		 ./http-receiver
+
+	2) Upload with KH (default verifies after upload):
+
+		 kh http upload-state \
+			 --file ./tmp/app/dev/terraform.tfstate \
+			 --url 'http://localhost:8080/states/app/dev.tfstate' \
+			 -o json
+
+	3) The receiver will validate `X-Checksum-Sha256`, persist the file, and echo the header back. KH will show `server_validated: true` in its JSON output and skip the read-back.
+
+If you run your own service, implement the above header validation/echo to get the optimized flow.
+
+Running the integration test locally
+
+You can run the small integration test that validates the server-echo -> skip-read-back behavior. It uses an httptest server and asserts that when the server validates and echoes `X-Checksum-Sha256`, the writer returns the server checksum.
+
+From the repository root (zsh):
+
+```zsh
+# run only the integration test in the backend package
+go test ./internal/backend -run TestHTTPWriter_ServerEcho -v
+
+# or run the full test suite
+gofmt -w . && go test ./...
+```
+
+The focused `go test` invocation is handy when you're iterating on the example receiver or the HTTP writer behavior.
+
 ## Output & exits
 
 - `-o, --output table|json` everywhere; stable JSON for CI
@@ -553,3 +617,34 @@ In Bitbucket → Pipelines → “Run pipeline”, choose your branch and start 
 		After migration, retry the upload without adopt-lineage.
 	- Confirm you pushed to the branch you’re viewing in Pipelines
 	- YAML must be valid; caches `go-mod` and `go-build` are defined under `definitions.caches`
+
+### Automated release (goreleaser) in Bitbucket Pipelines
+
+We provide a `tags: 'v*'` pipeline that runs `goreleaser` to produce multi-OS artifacts (Linux/macOS/Windows for amd64 and arm64), generates checksums and release notes, and uploads the produced artifacts to Bitbucket Downloads.
+
+Required repository variables (Repository settings → Pipelines → Repository variables):
+
+- `BITBUCKET_USERNAME` — a user (or service account) that can upload Downloads (use an app password user).
+- `BITBUCKET_APP_PASSWORD` — the app password for the user above with at least `Repository: Write` permission.
+
+What the pipeline does on tag builds:
+
+- Runs `make test`, then installs `goreleaser`.
+- Calls `goreleaser release --rm-dist` which produces a `dist/` directory with archives and checksums.
+- Creates a simple `dist/release-notes-<tag>.txt` from recent git commits and ensures a checksums file exists.
+- Uploads every file in `dist/` to Bitbucket Downloads via the API.
+
+Quick local test:
+
+```zsh
+# produce artifacts locally without publishing
+goreleaser release --snapshot --rm-dist
+
+# verify artifacts
+ls -lha dist/
+```
+
+Notes:
+
+- The pipeline uploads to Bitbucket Downloads. If you prefer publishing to GitHub Releases, you can configure goreleaser's `release` section with a GitHub token and endpoint instead.
+- Keep `BITBUCKET_APP_PASSWORD` secret and masked in repository variables; do not commit secrets to the repo.

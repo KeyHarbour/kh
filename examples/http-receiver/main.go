@@ -88,15 +88,25 @@ func handleStates(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// If client provided an expected checksum, validate it before writing.
+		clientChecksum := r.Header.Get("X-Checksum-Sha256")
+		sum := sha256.Sum256(b)
+		hexSum := hex.EncodeToString(sum[:])
+		if clientChecksum != "" && clientChecksum != hexSum {
+			// Mismatch: do not write the file and return a 409 Conflict for lineage/verification issues
+			http.Error(w, fmt.Sprintf("checksum mismatch: expected %s got %s", clientChecksum, hexSum), http.StatusConflict)
+			return
+		}
 		if err := os.WriteFile(fsPath, b, 0o600); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		sum := sha256.Sum256(b)
+		// Echo the computed checksum back to the client in a header and JSON body
+		w.Header().Set("X-Checksum-Sha256", hexSum)
 		out := map[string]any{
 			"url":      fmt.Sprintf("%s://%s%s", scheme(r), r.Host, r.URL.Path),
 			"size":     len(b),
-			"checksum": hex.EncodeToString(sum[:]),
+			"checksum": hexSum,
 		}
 		writeJSON(w, out)
 	case http.MethodGet:

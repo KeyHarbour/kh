@@ -1,0 +1,50 @@
+project_name: kh
+
+builds:
+  - id: kh
+    main: ./cmd/kh
+    binary: kh
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X kh/pkg/version.Version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    replacements:
+      darwin: macOS
+    files:
+      - README.md
+      - LICENSE
+    wrap_in_directory: true
+
+zips:
+  - id: windows
+    format: zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+changelog:
+  use: git
+
+release:
+  github:
+    owner: ""
+    name: ""
+  # We'll use Bitbucket uploads; keep GitHub section blank unless you publish there
+
+snapshot:
+  name_template: "snapshot-{{ .Timestamp }}"
