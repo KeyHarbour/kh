@@ -6,6 +6,9 @@ BINDIR ?= $(PREFIX)/bin
 INSTALL ?= install
 COVERAGE_DIR := coverage
 
+.PHONY: build-cross release-local
+
+
  tidy:
 	go mod tidy
 
@@ -39,6 +42,19 @@ fmt:
 
 clean:
 	rm -rf bin $(COVERAGE_DIR)
+
+build-cross:
+	# cross-build for common OS/ARCH targets
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o bin/kh-darwin-arm64 ./cmd/kh
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o bin/kh-darwin-amd64 ./cmd/kh
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o bin/kh-linux-amd64 ./cmd/kh
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o bin/kh-linux-arm64 ./cmd/kh
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/kh-windows-amd64.exe ./cmd/kh
+
+release-local: build-cross
+	# run goreleaser in snapshot mode to produce dist/ (requires goreleaser installed)
+	goreleaser release --snapshot --rm-dist
 
 # Install/uninstall the kh binary
 install: build

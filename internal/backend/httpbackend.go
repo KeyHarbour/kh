@@ -58,7 +58,12 @@ func NewHTTPWriterWithHeaders(url string, headers map[string]string) *HTTPWriter
 }
 
 func (w *HTTPWriter) Put(ctx context.Context, key string, data []byte, overwrite bool) (Object, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, w.URL, bytes.NewReader(data))
+	// Prefer explicit key (resolved URL) when provided, otherwise fall back to the writer's URL
+	target := w.URL
+	if key != "" {
+		target = key
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, bytes.NewReader(data))
 	if err != nil {
 		return Object{}, err
 	}
@@ -71,9 +76,17 @@ func (w *HTTPWriter) Put(ctx context.Context, key string, data []byte, overwrite
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Object{}, fmt.Errorf("PUT %s: %s", w.URL, resp.Status)
+		return Object{}, fmt.Errorf("PUT %s: %s", target, resp.Status)
 	}
+	// Prefer server-echoed checksum when present (server validated the upload).
+	serverSum := resp.Header.Get("X-Checksum-Sha256")
 	h := sha256.Sum256(data)
-	obj := Object{Key: w.URL, Size: int64(len(data)), Checksum: hex.EncodeToString(h[:]), URL: w.URL}
+	localSum := hex.EncodeToString(h[:])
+	checksum := localSum
+	if serverSum != "" {
+		checksum = serverSum
+	}
+	// Return object summary with the target URL and chosen checksum (server-echoed if available).
+	obj := Object{Key: target, Size: int64(len(data)), Checksum: checksum, URL: target}
 	return obj, nil
 }
