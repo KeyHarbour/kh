@@ -2,7 +2,10 @@
 
 CLI for moving Terraform state between common backends and Key-Harbour.
 
-Status: MVP scaffold (commands parse flags, dry-run supported; some KH APIs not wired yet). Now includes Terraform Cloud scaffolding (init --backend cloud) and read-only import from Terraform Cloud.
+Status: MVP scaffold (commands parse flags, dry-run supported; some KH APIs not wired yet). Now includes:
+- Automated project migration (`kh migrate auto`) with backend detection and state upload
+- Terraform Cloud scaffolding (`init --backend cloud`) and read-only import
+- Support for local, HTTP, and Terraform Cloud backends
 
 ## Getting Started
 
@@ -58,14 +61,19 @@ Quick start:
 kh --debug --help
 kh login --token <PAT>
 kh state ls -o json
+
+# Scaffold a new Terraform project
 kh init project -n demo -e dev -m app --dir ./infra --backend http
 kh init project -n demo -e dev -m app --dir ./infra --backend cloud --tfc-org MyOrg --tfc-workspace demo-dev
 
+# Migrate an existing Terraform project to KeyHarbour
+cd /path/to/terraform/project
+kh migrate auto --project=myapp --dry-run  # preview
+kh migrate auto --project=myapp            # execute migration
+
 # Show version
-```zsh
 kh --version
 kh --version -o json
-```
 ```
 
 ## Auth & config
@@ -339,9 +347,214 @@ kh tfc upload-state \
 	-o json
 ```
 
-### migrate backend
+### migrate
 
-Plan migrations between backends (scaffolding).
+Automate migration of Terraform projects from any backend to KeyHarbour. The `migrate` command simplifies the process by:
+1. Detecting your current backend configuration (local, http, tfc, s3, etc.)
+2. Retrieving the current state
+3. Backing up your current backend config
+4. Uploading the state to KeyHarbour
+5. Generating new backend.tf and backend.hcl for KeyHarbour
+
+#### migrate auto
+
+Automatically migrate the current Terraform project to KeyHarbour.
+
+Usage:
+
+```zsh
+# Migrate current directory (auto-detect backend)
+kh migrate auto --project=myapp
+
+# Migrate with explicit workspace and module naming
+kh migrate auto --project=myapp --module=infra --workspace=prod
+
+# Preview what will happen without making changes
+kh migrate auto --project=myapp --dry-run
+
+# Migrate all workspaces in terraform.tfstate.d/
+kh migrate auto --project=myapp --batch
+
+# Migrate with state validation before and after
+kh migrate auto --project=myapp --validate
+
+# Generate detailed migration report
+kh migrate auto --project=myapp --report=migration-report.json
+
+# Migrate with validation and report
+kh migrate auto --project=myapp --batch --validate --report=migration-report.json
+
+# Rollback a migration from backup
+kh migrate auto --rollback
+
+# Rollback from custom backup directory
+kh migrate auto --rollback --rollback-from=/path/to/backup
+
+# Migrate with custom KeyHarbour endpoint
+kh migrate auto --project=myapp --endpoint=https://kh.example.com
+
+# Skip backup (not recommended)
+kh migrate auto --project=myapp --skip-backup
+
+# Force overwrite existing backend.tf files
+kh migrate auto --project=myapp --force
+```
+
+Flags:
+
+```text
+-d, --dir string           Terraform project directory (default: ".")
+--project string           KeyHarbour project name (required, or set KH_PROJECT)
+-m, --module string        Module name (auto-detected or defaults to 'infra')
+-w, --workspace string     Workspace name (auto-detected or defaults to 'default')
+--dry-run                  Preview actions without making changes
+--batch                    Migrate all workspaces (discovers from terraform.tfstate.d/)
+--validate                 Validate state before and after migration
+--report string            Write detailed migration report to file (JSON)
+--rollback                 Rollback migration from backup
+--rollback-from string     Backup directory to rollback from (defaults to .kh-migrate-backup)
+--backup-dir string        Backup directory (defaults to .kh-migrate-backup)
+-f, --force                Overwrite existing files
+--skip-backup              Skip backing up current backend config (not recommended)
+--endpoint string          KeyHarbour API endpoint (or use KH_ENDPOINT)
+--org string               KeyHarbour organization (or use KH_ORG)
+--kh-project string        Alternative to --project flag
+```
+
+Environment variables:
+
+```text
+KH_PROJECT       KeyHarbour project name (alternative to --project)
+KH_ENDPOINT      KeyHarbour API endpoint
+KH_ORG           KeyHarbour organization
+KH_TOKEN         KeyHarbour authentication token (required)
+```
+
+Supported backend types:
+- **local**: Reads from terraform.tfstate or terraform.tfstate.d/{workspace}/
+- **http**: Detects address from backend.tf configuration
+- **tfc/cloud**: Reads from Terraform Cloud (requires TF_API_TOKEN or similar)
+- **s3/azurerm/gcs**: Detection supported; manual export required (see note below)
+
+For backends not yet directly supported (s3, azurerm, gcs), you can manually export state first:
+
+```zsh
+# Export state manually
+terraform state pull > state.tfstate
+
+# Then import to KeyHarbour
+kh import tfstate --from=local --path=state.tfstate --project=myapp --module=infra
+```
+
+**Batch Migration:**
+
+Use `--batch` to automatically discover and migrate all workspaces in `terraform.tfstate.d/`:
+
+```zsh
+kh migrate auto --project=myapp --batch
+```
+
+This will:
+- Discover all workspace directories in `terraform.tfstate.d/`
+- Migrate each workspace independently
+- Continue processing remaining workspaces even if one fails
+- Report overall success/failure counts
+
+**State Validation:**
+
+Use `--validate` to perform integrity checks before and after migration:
+
+```zsh
+kh migrate auto --project=myapp --validate
+```
+
+Validation checks include:
+- JSON format validity
+- Lineage presence and format
+- Serial number validity
+- State version compatibility
+- Terraform version tracking
+- State size limits
+
+**Migration Reports:**
+
+Use `--report` to generate a detailed JSON report of the migration:
+
+```zsh
+kh migrate auto --project=myapp --report=migration-report.json
+```
+
+The report includes:
+- Migration metadata (start time, duration, status)
+- Per-workspace migration details
+- Pre/post validation results
+- State IDs, lineages, and serials
+- Backup file paths
+- Any errors or warnings encountered
+
+Example report structure:
+
+```json
+{
+  "started_at": "2025-11-09T10:30:00Z",
+  "completed_at": "2025-11-09T10:30:15Z",
+  "duration_seconds": 15.2,
+  "total_workspaces": 3,
+  "successful": 3,
+  "failed": 0,
+  "workspaces": [
+    {
+      "workspace": "default",
+      "status": "success",
+      "state_id": "myapp/infra/default",
+      "lineage": "abc-123-def",
+      "serial": 42,
+      "backup_path": ".kh-migrate-backup/backend.tf.1731150600.bak",
+      "pre_validation": { ... },
+      "post_validation": { ... }
+    }
+  ]
+}
+```
+
+**Rollback Support:**
+
+If a migration fails or you need to revert, use `--rollback`:
+
+```zsh
+# Rollback using default backup directory
+kh migrate auto --rollback
+
+# Rollback from custom backup directory
+kh migrate auto --rollback --rollback-from=/path/to/backup
+```
+
+Rollback will restore:
+- Original `backend.tf` configuration
+- Per-workspace state files from backups
+- Original backend configuration
+
+After rollback, reinitialize Terraform:
+
+```zsh
+terraform init -reconfigure
+```
+
+After migration:
+
+```zsh
+# Reinitialize Terraform with the new backend
+terraform init -reconfigure -backend-config=backend.hcl
+
+# Verify the migration
+terraform plan
+```
+
+Your original backend configuration is backed up to `.kh-migrate-backup/` (by default).
+
+#### migrate backend (legacy)
+
+Legacy command for manual backend migrations (use `migrate auto` instead).
 
 Usage: `kh migrate backend --from <src> --to <dest> [--dry-run]`
 

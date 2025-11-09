@@ -101,3 +101,33 @@ func (c *Client) ReleaseLock(ctx context.Context, id string, force bool) error {
 	}
 	return nil
 }
+
+// PutState uploads state data to KeyHarbour
+func (c *Client) PutState(ctx context.Context, id string, data []byte, overwrite bool) (StateMeta, error) {
+	q := url.Values{}
+	if overwrite {
+		q.Set("overwrite", "true")
+	}
+	r, err := c.newReq(ctx, http.MethodPut, "/api/v1/states/"+id, q, nil)
+	if err != nil {
+		return StateMeta{}, err
+	}
+	r.Header.Set("Content-Type", "application/vnd.terraform.state+json;version=4")
+	r.Body = io.NopCloser(bytesReader(data))
+	r.ContentLength = int64(len(data))
+
+	resp, err := c.HTTP.Do(r)
+	if err != nil {
+		return StateMeta{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		return StateMeta{}, fmt.Errorf("put state: %s: %s", resp.Status, string(body))
+	}
+	var meta StateMeta
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return StateMeta{}, err
+	}
+	return meta, nil
+}
