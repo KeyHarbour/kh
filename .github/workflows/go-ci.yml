@@ -1,0 +1,81 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build & Test
+        run: |
+          go version
+          make tidy
+          make vet
+          make fmt
+          make build
+          make test
+          make coverage-report
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/**
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kh-binary
+          path: bin/kh
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build release artifacts
+        run: |
+          make tidy
+          make vet
+          make fmt
+          make test
+          make coverage-report
+          curl -sSfL https://goreleaser.com/static/install.sh | sh
+          goreleaser release --rm-dist
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/**
