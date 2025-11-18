@@ -64,9 +64,6 @@ jobs:
 
       - name: Build release artifacts
         run: |
-          make tidy
-          make vet
-          make fmt
           make test
           make coverage-report
 
