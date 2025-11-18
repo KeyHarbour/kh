@@ -1,3 +1,5 @@
+version: 2
+
 project_name: kh
 
 builds:
@@ -20,19 +22,14 @@ builds:
 archives:
   - id: default
     format: tar.gz
-    replacements:
-      darwin: macOS
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE
     wrap_in_directory: true
-
-zips:
-  - id: windows
-    format: zip
-    files:
-      - README.md
-      - LICENSE
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
