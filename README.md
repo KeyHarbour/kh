@@ -16,7 +16,7 @@ Install one of the following ways:
 1) System-wide (recommended; installs to /usr/local/bin)
 
 ```zsh
-cd keyharbour-cli
+cd cli
 make tidy
 make build
 sudo make install   # installs /usr/local/bin/kh
