@@ -127,6 +127,32 @@ kh config set <key> <value>
 
 Keys: `endpoint`, `token`, `org`, `project`, `concurrency`
 
+### projects
+List or inspect Key-Harbour projects.
+
+Usage:
+
+```zsh
+kh projects ls [-o table|json]
+kh projects show <name-or-uuid> [-o table|json]
+```
+
+### workspaces
+List or inspect workspaces within a project.
+
+Usage:
+
+```zsh
+kh workspaces ls --project <name-or-uuid> [-o table|json]
+kh workspaces show <name-or-uuid> --project <name-or-uuid> [-o table|json]
+```
+
+Flags:
+
+```text
+--project string   Project name or UUID (or KH_PROJECT)
+```
+
 ### state
 List or show Terraform states in Key-Harbour.
 
@@ -140,7 +166,7 @@ kh state show <state-id> [--raw] [-o table|json]
 Flags (ls):
 
 ```text
---project string     filter by project
+--project string     filter by project (name or UUID)
 --module string      filter by module
 --workspace string   filter by workspace
 ```
@@ -149,6 +175,32 @@ Flags (show):
 
 ```text
 --raw    output raw v4 state JSON
+```
+
+### statefiles
+Manage historical statefiles scoped to a project/workspace pair.
+
+Usage:
+
+```zsh
+kh statefiles ls --project <name-or-uuid> --workspace <name-or-uuid> [--environment <env>] [-o table|json]
+kh statefiles last --project <name-or-uuid> --workspace <name-or-uuid> [--environment <env>] [--raw]
+kh statefiles get <uuid> --project <name-or-uuid> --workspace <name-or-uuid> [--raw]
+kh statefiles push --project <name-or-uuid> --workspace <name-or-uuid> (--file path | --stdin) [--environment <env>]
+kh statefiles rm <uuid> --project <name-or-uuid> --workspace <name-or-uuid>
+kh statefiles rm-all --project <name-or-uuid> --workspace <name-or-uuid> --force
+```
+
+Flags:
+
+```text
+--project string      Project name or UUID (defaults to KH_PROJECT)
+--workspace string    Workspace name or UUID (required)
+--environment string  Filter or tag a specific environment
+--file string         Path to tfstate file for push
+--stdin               Read push payload from stdin
+--raw                 Print raw content for get/last
+--force               Required for rm-all
 ```
 
 ### import tfstate

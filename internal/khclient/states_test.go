@@ -4,19 +4,17 @@ import (
 	"context"
 	"kh/internal/config"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
 func TestListStates_404ReturnsEmpty(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/states" {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/states" {
 			http.NotFound(w, r)
 			return
 		}
 		http.NotFound(w, r)
-	}))
-	defer srv.Close()
+	})
 
 	cfg := config.Config{Endpoint: srv.URL}
 	c := New(cfg)

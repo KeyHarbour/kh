@@ -19,3 +19,27 @@ type ListStatesRequest struct {
 	Module    string `json:"module,omitempty"`
 	Workspace string `json:"workspace,omitempty"`
 }
+
+type Statefile struct {
+	UUID        string    `json:"uuid"`
+	Content     string    `json:"content"`
+	PublishedAt time.Time `json:"published_at"`
+	Environment string    `json:"environment,omitempty"`
+}
+
+type StatefileCreatedResponse struct {
+	Status string `json:"status"`
+}
+
+type Project struct {
+	UUID             string   `json:"uuid"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description,omitempty"`
+	EnvironmentNames []string `json:"environment_names,omitempty"`
+}
+
+type Workspace struct {
+	UUID        string `json:"uuid"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}

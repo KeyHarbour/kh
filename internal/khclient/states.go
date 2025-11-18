@@ -3,7 +3,6 @@ package khclient
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -20,44 +19,39 @@ func (c *Client) ListStates(ctx context.Context, req ListStatesRequest) ([]State
 	if req.Workspace != "" {
 		q.Set("workspace", req.Workspace)
 	}
-	r, err := c.newReq(ctx, http.MethodGet, "/api/v1/states", q, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.HTTP.Do(r)
+	resp, err := c.do(ctx, http.MethodGet, "/v1/states", q, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 404 {
-		// Treat 404 Not Found as no states present for the given filters
+	if resp.StatusCode == http.StatusNotFound {
 		return []StateMeta{}, nil
 	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("list states: %s", resp.Status)
+	if err := expectStatus("list states", resp, http.StatusOK); err != nil {
+		return nil, err
 	}
 	var out []StateMeta
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 func (c *Client) GetStateRaw(ctx context.Context, id string) ([]byte, StateMeta, error) {
-	r, err := c.newReq(ctx, http.MethodGet, "/api/v1/states/"+id, nil, nil)
-	if err != nil {
-		return nil, StateMeta{}, err
+	if id == "" {
+		return nil, StateMeta{}, APIError{StatusCode: http.StatusBadRequest, Message: "state id is required"}
 	}
-	r.Header.Set("Accept", "application/vnd.terraform.state+json;version=4")
-	resp, err := c.HTTP.Do(r)
+	headers := map[string]string{
+		"Accept": "application/vnd.terraform.state+json;version=4",
+	}
+	resp, err := c.do(ctx, http.MethodGet, "/v1/states/"+url.PathEscape(id), nil, nil, headers)
 	if err != nil {
 		return nil, StateMeta{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, StateMeta{}, fmt.Errorf("get state: %s", resp.Status)
+	if err := expectStatus("get state", resp, http.StatusOK); err != nil {
+		return nil, StateMeta{}, err
 	}
-	// Assume metadata is in header or a sidecar endpoint; for MVP, try X-State-Meta header as JSON else zero
 	var meta StateMeta
 	if h := resp.Header.Get("X-State-Meta"); h != "" {
 		_ = json.Unmarshal([]byte(h), &meta)
@@ -67,66 +61,52 @@ func (c *Client) GetStateRaw(ctx context.Context, id string) ([]byte, StateMeta,
 }
 
 func (c *Client) AcquireLock(ctx context.Context, id string) error {
-	r, err := c.newReq(ctx, http.MethodPost, "/api/v1/states/"+id+"/lock", nil, nil)
-	if err != nil {
-		return err
+	if id == "" {
+		return APIError{StatusCode: http.StatusBadRequest, Message: "state id is required"}
 	}
-	resp, err := c.HTTP.Do(r)
+	resp, err := c.do(ctx, http.MethodPost, "/v1/states/"+url.PathEscape(id)+"/lock", nil, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 && resp.StatusCode != 204 {
-		return fmt.Errorf("lock: %s", resp.Status)
-	}
-	return nil
+	return expectStatus("lock state", resp, http.StatusOK, http.StatusNoContent)
 }
 
 func (c *Client) ReleaseLock(ctx context.Context, id string, force bool) error {
+	if id == "" {
+		return APIError{StatusCode: http.StatusBadRequest, Message: "state id is required"}
+	}
 	q := url.Values{}
 	if force {
 		q.Set("force", "true")
 	}
-	r, err := c.newReq(ctx, http.MethodPost, "/api/v1/states/"+id+"/unlock", q, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := c.HTTP.Do(r)
+	resp, err := c.do(ctx, http.MethodPost, "/v1/states/"+url.PathEscape(id)+"/unlock", q, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 && resp.StatusCode != 204 {
-		return fmt.Errorf("unlock: %s", resp.Status)
-	}
-	return nil
+	return expectStatus("unlock state", resp, http.StatusOK, http.StatusNoContent)
 }
 
 // PutState uploads state data to KeyHarbour
 func (c *Client) PutState(ctx context.Context, id string, data []byte, overwrite bool) (StateMeta, error) {
+	if id == "" {
+		return StateMeta{}, APIError{StatusCode: http.StatusBadRequest, Message: "state id is required"}
+	}
 	q := url.Values{}
 	if overwrite {
 		q.Set("overwrite", "true")
 	}
-	r, err := c.newReq(ctx, http.MethodPut, "/api/v1/states/"+id, q, nil)
-	if err != nil {
-		return StateMeta{}, err
-	}
-	r.Header.Set("Content-Type", "application/vnd.terraform.state+json;version=4")
-	r.Body = io.NopCloser(bytesReader(data))
-	r.ContentLength = int64(len(data))
-
-	resp, err := c.HTTP.Do(r)
+	resp, err := c.do(ctx, http.MethodPut, "/v1/states/"+url.PathEscape(id), q, rawDataBody(data, "application/vnd.terraform.state+json;version=4"), nil)
 	if err != nil {
 		return StateMeta{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		body, _ := io.ReadAll(resp.Body)
-		return StateMeta{}, fmt.Errorf("put state: %s: %s", resp.Status, string(body))
+	if err := expectStatus("put state", resp, http.StatusOK, http.StatusCreated); err != nil {
+		return StateMeta{}, err
 	}
 	var meta StateMeta
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+	if err := decodeJSON(resp, &meta); err != nil {
 		return StateMeta{}, err
 	}
 	return meta, nil
