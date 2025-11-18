@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"kh/internal/config"
 	"kh/internal/khclient"
 )
+
+func newIPv4Server(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(handler)
+}
 
 func TestResolveProjectRefByName(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
