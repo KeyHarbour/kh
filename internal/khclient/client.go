@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"kh/internal/config"
+	"kh/internal/logging"
 )
 
 const (
@@ -67,6 +68,9 @@ func (c *Client) do(ctx context.Context, method, p string, q url.Values, body an
 			}
 			req.Header.Set(k, v)
 		}
+		if logging.Enabled() {
+			logging.Debugf("HTTP %s %s", method, req.URL.String())
+		}
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
 			lastErr = err
@@ -75,6 +79,9 @@ func (c *Client) do(ctx context.Context, method, p string, q url.Values, body an
 			}
 			time.Sleep(c.retryDelay(attempt))
 			continue
+		}
+		if logging.Enabled() {
+			logging.Debugf("HTTP status %d for %s %s", resp.StatusCode, method, req.URL.String())
 		}
 		if shouldRetryStatus(resp.StatusCode) {
 			lastErr = fmt.Errorf("temporary status: %s", resp.Status)

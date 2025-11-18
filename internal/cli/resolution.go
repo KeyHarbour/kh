@@ -37,6 +37,9 @@ func resolveProjectRef(ctx context.Context, client *khclient.Client, ref string)
 	if ref == "" {
 		return khclient.Project{}, fmt.Errorf("project reference is required")
 	}
+	if looksLikeUUID(ref) {
+		return client.GetProject(ctx, ref)
+	}
 	projects, err := client.ListProjects(ctx)
 	if err != nil {
 		return khclient.Project{}, err
@@ -45,9 +48,6 @@ func resolveProjectRef(ctx context.Context, client *khclient.Client, ref string)
 		if strings.EqualFold(p.UUID, ref) || strings.EqualFold(p.Name, ref) {
 			return p, nil
 		}
-	}
-	if looksLikeUUID(ref) {
-		return client.GetProject(ctx, ref)
 	}
 	return khclient.Project{}, fmt.Errorf("project %q not found", ref)
 }
@@ -59,6 +59,9 @@ func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUU
 	if ref == "" {
 		return khclient.Workspace{}, fmt.Errorf("workspace reference is required")
 	}
+	if looksLikeUUID(ref) {
+		return client.GetWorkspace(ctx, projectUUID, ref)
+	}
 	workspaces, err := client.ListWorkspaces(ctx, projectUUID)
 	if err != nil {
 		return khclient.Workspace{}, err
@@ -67,9 +70,6 @@ func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUU
 		if strings.EqualFold(w.UUID, ref) || strings.EqualFold(w.Name, ref) {
 			return w, nil
 		}
-	}
-	if looksLikeUUID(ref) {
-		return client.GetWorkspace(ctx, projectUUID, ref)
 	}
 	return khclient.Workspace{}, fmt.Errorf("workspace %q not found in project %s", ref, projectUUID)
 }

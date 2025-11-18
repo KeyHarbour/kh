@@ -35,7 +35,8 @@ func expectStatus(op string, resp *http.Response, allowed ...int) error {
 
 func parseAPIError(resp *http.Response) error {
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// Limit read to 8KB then truncate to 300 chars for display
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	var payload struct {
 		Error   string `json:"error"`
 		Message string `json:"message"`
@@ -51,10 +52,14 @@ func parseAPIError(resp *http.Response) error {
 	if msg == "" {
 		msg = payload.Detail
 	}
+	bodySnippet := strings.TrimSpace(string(data))
+	if len(bodySnippet) > 300 {
+		bodySnippet = bodySnippet[:300] + "... (truncated)"
+	}
 	return APIError{
 		StatusCode: resp.StatusCode,
 		Message:    msg,
-		Body:       strings.TrimSpace(string(data)),
+		Body:       bodySnippet,
 	}
 }
 
@@ -63,9 +68,25 @@ func decodeJSON(resp *http.Response, dest any) error {
 		_, err := io.Copy(io.Discard, resp.Body)
 		return err
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "json") {
-		return fmt.Errorf("unexpected content type: %s", ct)
+	ct := resp.Header.Get("Content-Type")
+	if ct != "" && !strings.Contains(ct, "json") {
+		// Read a sample of the body and truncate to 300 chars for error reporting
+		sampleBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		snippet := strings.TrimSpace(string(sampleBytes))
+		if len(snippet) > 300 {
+			snippet = snippet[:300] + "... (truncated)"
+		}
+		return APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("unexpected content-type %s", ct), Body: snippet}
 	}
 	dec := json.NewDecoder(resp.Body)
-	return dec.Decode(dest)
+	if err := dec.Decode(dest); err != nil {
+		// Attempt to read remainder for context (best-effort)
+		rest, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		snippet := strings.TrimSpace(string(rest))
+		if len(snippet) > 300 {
+			snippet = snippet[:300] + "... (truncated)"
+		}
+		return APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("json decode error: %v", err), Body: snippet}
+	}
+	return nil
 }

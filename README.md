@@ -133,9 +133,13 @@ List or inspect Key-Harbour projects.
 Usage:
 
 ```zsh
-kh projects ls [-o table|json]
 kh projects show <name-or-uuid> [-o table|json]
 ```
+
+Note:
+- Listing projects (`kh projects ls`) is temporarily unsupported by the server API and hidden in the CLI. Use:
+	- `kh projects show <uuid>` to fetch a specific project
+	- `kh workspaces ls --project <uuid>` to explore its workspaces
 
 ### workspaces
 List or inspect workspaces within a project.
