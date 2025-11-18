@@ -72,10 +72,10 @@ jobs:
           make fmt
           make test
           make coverage-report
-          curl -sSfL https://goreleaser.com/static/install.sh | sh
-          goreleaser release --rm-dist
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          name: dist
-          path: dist/**
+          version: latest
+          args: release --rm-dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
