@@ -53,3 +53,4 @@ bin/
 coverage/
 
 tmp/
+.env
