@@ -109,6 +109,7 @@ func newMigrateAutoCmd() *cobra.Command {
 		project      string
 		module       string
 		workspace    string
+		envName      string
 		dryRun       bool
 		backupDir    string
 		force        bool
@@ -130,6 +131,7 @@ func newMigrateAutoCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
 			cfg, _ := config.Load()
+			client := khclient.New(cfg)
 
 			// Handle rollback mode
 			if rollback {
@@ -143,10 +145,11 @@ func newMigrateAutoCmd() *cobra.Command {
 				Module:     module,
 				Workspaces: []WorkspaceMigration{},
 			}
+			var projectUUID string
 
 			// Resolve config from flags/env/config
 			if khEndpoint == "" {
-				khEndpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.ca")
+				khEndpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.test")
 			}
 			if khOrg == "" {
 				khOrg = config.FromEnvOr(cfg, "KH_ORG", "")
@@ -154,14 +157,31 @@ func newMigrateAutoCmd() *cobra.Command {
 			if khProject == "" {
 				khProject = config.FromEnvOr(cfg, "KH_PROJECT", "")
 			}
-			if project == "" {
-				project = khProject
+			client.Endpoint = khEndpoint
+			client.Org = khOrg
+			client.Token = config.FromEnvOr(cfg, "KH_TOKEN", cfg.Token)
+			projectRef := project
+			if projectRef == "" {
+				projectRef = khProject
 			}
-			if project == "" {
+			if projectRef == "" {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("--project is required (or set KH_PROJECT)"))
 			}
 
-			report.Project = project
+			resolver := clientReferenceResolver{client: client}
+			ctxResolveProj, cancelProj := context.WithTimeout(cmd.Context(), 30*time.Second)
+			proj, err := resolver.ResolveProject(ctxResolveProj, projectRef)
+			cancelProj()
+			if err != nil {
+				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("failed to resolve KeyHarbour project %q: %w", projectRef, err))
+			}
+			projectUUID = proj.UUID
+			projectName := proj.Name
+			if projectName == "" {
+				projectName = projectRef
+			}
+			project = projectName
+			report.Project = projectName
 
 			// Step 1: Detect current backend
 			logging.Debugf("Detecting backend in %s", dir)
@@ -175,6 +195,18 @@ func newMigrateAutoCmd() *cobra.Command {
 
 			// Step 2: Discover workspaces (batch mode or single)
 			var workspaces []string
+			if !batchMode {
+				if workspace == "" {
+					if v := os.Getenv("KH_WORKSPACE"); v != "" {
+						workspace = v
+					}
+				}
+			}
+			if envName == "" {
+				if v := os.Getenv("KH_ENVIRONMENT"); v != "" {
+					envName = v
+				}
+			}
 			if batchMode {
 				workspaces, err = discoverWorkspaces(dir, backendCfg)
 				if err != nil {
@@ -221,6 +253,20 @@ func newMigrateAutoCmd() *cobra.Command {
 					wsMigration.Error = "no state data found"
 					report.Workspaces = append(report.Workspaces, wsMigration)
 					report.Warnings = append(report.Warnings, fmt.Sprintf("workspace %s: no state data", ws))
+					continue
+				}
+
+				ctxResolveWs, cancelWs := context.WithTimeout(cmd.Context(), 30*time.Second)
+				workspaceEntity, err := resolver.ResolveWorkspace(ctxResolveWs, projectUUID, ws)
+				cancelWs()
+				if err != nil {
+					wsMigration.Success = false
+					wsMigration.Error = fmt.Sprintf("failed to resolve KeyHarbour workspace %q: %v", ws, err)
+					report.Workspaces = append(report.Workspaces, wsMigration)
+					report.Errors = append(report.Errors, wsMigration.Error)
+					if !batchMode {
+						return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("workspace resolution failed: %w", err))
+					}
 					continue
 				}
 
@@ -303,43 +349,45 @@ func newMigrateAutoCmd() *cobra.Command {
 					logging.Debugf("Backed up state to %s", stateBackupPath)
 				}
 
-				// Step 6: Upload state to KeyHarbour
-				logging.Debugf("Uploading state to KeyHarbour: id=%s", stateID)
-				client := khclient.New(cfg)
-				client.Endpoint = khEndpoint
-				client.Org = khOrg
-
-				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-				meta, err := client.PutState(ctx, stateID, stateData, force)
-				cancel()
+				// Step 6: Upload state to KeyHarbour statefile API
+				logging.Debugf("Uploading statefile to project=%s workspace=%s", projectUUID, workspaceEntity.UUID)
+				envTag := envName
+				if envTag == "" {
+					envTag = ws
+				}
+				ctxUpload, cancelUpload := context.WithTimeout(cmd.Context(), 30*time.Second)
+				_, err = client.CreateStatefile(ctxUpload, projectUUID, workspaceEntity.UUID, envTag, khclient.CreateStatefileRequest{Content: string(stateData)})
+				cancelUpload()
 
 				if err != nil {
 					wsMigration.Success = false
-					wsMigration.Error = fmt.Sprintf("failed to upload state: %v", err)
+					wsMigration.Error = fmt.Sprintf("failed to upload statefile: %v", err)
 					report.Workspaces = append(report.Workspaces, wsMigration)
 					report.Errors = append(report.Errors, wsMigration.Error)
 					if !batchMode {
-						return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("failed to upload state: %w", err))
+						return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("failed to upload statefile: %w", err))
 					}
 					continue
 				}
 
-				wsMigration.TargetChecksum = meta.Checksum
-				logging.Debugf("Uploaded state: id=%s size=%d checksum=%s", meta.ID, meta.Size, meta.Checksum)
+				wsMigration.TargetChecksum = wsMigration.SourceChecksum
+				logging.Debugf("Uploaded statefile for workspace %s", workspaceEntity.Name)
 
 				// Step 7: Post-migration validation
 				if validate {
 					logging.Debugf("Post-migration validation for workspace %s", ws)
-					// Retrieve uploaded state and validate
-					ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
-					uploadedData, _, err := client.GetStateRaw(ctx, stateID)
-					cancel()
+					// Retrieve uploaded statefile and validate
+					ctxFetch, cancelFetch := context.WithTimeout(cmd.Context(), 10*time.Second)
+					uploadedState, err := client.GetLastStatefile(ctxFetch, projectUUID, workspaceEntity.UUID, envTag)
+					cancelFetch()
 
 					if err != nil {
 						wsMigration.ValidationPost.Valid = false
-						wsMigration.ValidationPost.Errors = []string{fmt.Sprintf("failed to retrieve uploaded state: %v", err)}
+						wsMigration.ValidationPost.Errors = []string{fmt.Sprintf("failed to retrieve uploaded statefile: %v", err)}
 						report.Warnings = append(report.Warnings, fmt.Sprintf("workspace %s: post-validation skipped", ws))
 					} else {
+						uploadedData := []byte(uploadedState.Content)
+						wsMigration.TargetChecksum = state.SHA256Hex(uploadedData)
 						wsMigration.ValidationPost = validateState(uploadedData)
 						if !wsMigration.ValidationPost.Valid {
 							wsMigration.Success = false
@@ -504,9 +552,10 @@ func newMigrateAutoCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "Terraform project directory")
-	cmd.Flags().StringVar(&project, "project", "", "KeyHarbour project name (required, or set KH_PROJECT)")
+	cmd.Flags().StringVar(&project, "project", "", "KeyHarbour project UUID (required, or set KH_PROJECT)")
 	cmd.Flags().StringVarP(&module, "module", "m", "", "Module name (auto-detected or defaults to 'infra')")
 	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "Workspace name (auto-detected or defaults to 'default')")
+	cmd.Flags().StringVar(&envName, "environment", "", "KeyHarbour environment name (defaults to workspace or KH_ENVIRONMENT)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without making changes")
 	cmd.Flags().StringVar(&backupDir, "backup-dir", "", "Backup directory (defaults to .kh-migrate-backup)")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing files")

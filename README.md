@@ -154,7 +154,7 @@ kh workspaces show <name-or-uuid> --project <name-or-uuid> [-o table|json]
 Flags:
 
 ```text
---project string   Project name or UUID (or KH_PROJECT)
+--project string   Project UUID (or KH_PROJECT)
 ```
 
 ### state
@@ -170,7 +170,7 @@ kh state show <state-id> [--raw] [-o table|json]
 Flags (ls):
 
 ```text
---project string     filter by project (name or UUID)
+--project string     filter by project UUID
 --module string      filter by module
 --workspace string   filter by workspace
 ```
@@ -198,7 +198,7 @@ kh statefiles rm-all --project <name-or-uuid> --workspace <name-or-uuid> --force
 Flags:
 
 ```text
---project string      Project name or UUID (defaults to KH_PROJECT)
+--project string      Project UUID (defaults to KH_PROJECT)
 --workspace string    Workspace name or UUID (required)
 --environment string  Filter or tag a specific environment
 --file string         Path to tfstate file for push
@@ -416,6 +416,11 @@ Automate migration of Terraform projects from any backend to KeyHarbour. The `mi
 
 Automatically migrate the current Terraform project to KeyHarbour.
 
+> **Prerequisites**
+> - The KeyHarbour project must already exist and be accessible via the API.
+> - A workspace with the same name (or UUID when using `--workspace`) must exist under that project. The CLI now uploads state via `/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles`, so migration will fail if the workspace cannot be resolved.
+> - `KH_TOKEN` (or `kh config set token`) must grant access to the target project/workspace.
+
 Usage:
 
 ```zsh
@@ -460,9 +465,10 @@ Flags:
 
 ```text
 -d, --dir string           Terraform project directory (default: ".")
---project string           KeyHarbour project name (required, or set KH_PROJECT)
+--project string           KeyHarbour project UUID (required, or set KH_PROJECT)
 -m, --module string        Module name (auto-detected or defaults to 'infra')
 -w, --workspace string     Workspace name (auto-detected or defaults to 'default')
+--environment string       KeyHarbour environment tag (defaults to workspace or KH_ENVIRONMENT)
 --dry-run                  Preview actions without making changes
 --batch                    Migrate all workspaces (discovers from terraform.tfstate.d/)
 --validate                 Validate state before and after migration
@@ -480,10 +486,12 @@ Flags:
 Environment variables:
 
 ```text
-KH_PROJECT       KeyHarbour project name (alternative to --project)
+KH_PROJECT       KeyHarbour project UUID (alternative to --project)
 KH_ENDPOINT      KeyHarbour API endpoint
 KH_ORG           KeyHarbour organization
 KH_TOKEN         KeyHarbour authentication token (required)
+KH_WORKSPACE     Optional default workspace name/UUID (used when --workspace is omitted)
+KH_ENVIRONMENT   Optional default environment tag (used when --environment is omitted)
 ```
 
 Supported backend types:
@@ -668,11 +676,11 @@ kh init project \
 Examples:
 
 ```zsh
-# Scaffold HTTP backend into ./tmp/app/dev with default endpoint https://api.keyharbour.ca
+# Scaffold HTTP backend into ./tmp/app/dev with default endpoint https://api.keyharbour.test
 kh init project -n sample -e dev -m app --dir ./tmp --backend http
 
 # Use values from config/env when flags are omitted
-KH_ENDPOINT=https://api.keyharbour.ca kh init project -n sample -e staging
+KH_ENDPOINT=https://api.keyharbour.test kh init project -n sample -e staging
 
 # Scaffold Terraform Cloud backend (generates cloud.tf)
 kh init project -n sample -e dev -m app --dir ./tmp \
@@ -700,9 +708,9 @@ Generated layout (dir/module/env):
 Backend configuration (backend.hcl for HTTP backend):
 
 ```hcl
-address        = "https://api.keyharbour.ca/api/v1/states/<id>"
-lock_address   = "https://api.keyharbour.ca/api/v1/states/<id>/lock"
-unlock_address = "https://api.keyharbour.ca/api/v1/states/<id>/unlock"
+address        = "https://api.keyharbour.test/api/v1/states/<id>"
+lock_address   = "https://api.keyharbour.test/api/v1/states/<id>/lock"
+unlock_address = "https://api.keyharbour.test/api/v1/states/<id>/unlock"
 lock_method    = "POST"
 unlock_method  = "POST"
 retry_max      = 2

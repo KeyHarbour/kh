@@ -6,22 +6,6 @@ import (
 	"net/url"
 )
 
-func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/v1/projects", nil, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if err := expectStatus("list projects", resp, http.StatusOK); err != nil {
-		return nil, err
-	}
-	var out []Project
-	if err := decodeJSON(resp, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, error) {
 	if projectUUID == "" {
 		return Project{}, APIError{StatusCode: http.StatusBadRequest, Message: "project uuid is required"}

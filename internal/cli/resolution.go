@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -37,19 +39,15 @@ func resolveProjectRef(ctx context.Context, client *khclient.Client, ref string)
 	if ref == "" {
 		return khclient.Project{}, fmt.Errorf("project reference is required")
 	}
-	if looksLikeUUID(ref) {
-		return client.GetProject(ctx, ref)
+	proj, err := client.GetProject(ctx, ref)
+	if err == nil {
+		return proj, nil
 	}
-	projects, err := client.ListProjects(ctx)
-	if err != nil {
-		return khclient.Project{}, err
+	var apiErr khclient.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return khclient.Project{}, fmt.Errorf("project %q not found. Provide the project UUID exactly as shown in KeyHarbour", ref)
 	}
-	for _, p := range projects {
-		if strings.EqualFold(p.UUID, ref) || strings.EqualFold(p.Name, ref) {
-			return p, nil
-		}
-	}
-	return khclient.Project{}, fmt.Errorf("project %q not found", ref)
+	return khclient.Project{}, err
 }
 
 func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUUID, ref string) (khclient.Workspace, error) {

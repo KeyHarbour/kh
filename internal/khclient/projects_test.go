@@ -9,25 +9,22 @@ import (
 	"kh/internal/config"
 )
 
-func TestListProjects(t *testing.T) {
+func TestGetProject(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/projects" {
+		if r.URL.Path != "/v1/projects/p-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]Project{
-			{UUID: "p-1", Name: "project-one"},
-			{UUID: "p-2", Name: "project-two"},
-		})
+		json.NewEncoder(w).Encode(Project{UUID: "p-1", Name: "project-one"})
 	})
 
 	client := New(config.Config{Endpoint: srv.URL})
-	items, err := client.ListProjects(context.Background())
+	proj, err := client.GetProject(context.Background(), "p-1")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if len(items) != 2 || items[0].UUID != "p-1" || items[1].Name != "project-two" {
-		t.Fatalf("unexpected items: %+v", items)
+	if proj.UUID != "p-1" || proj.Name != "project-one" {
+		t.Fatalf("unexpected project: %+v", proj)
 	}
 }
 

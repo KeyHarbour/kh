@@ -47,7 +47,7 @@ func newStatefilesCmd() *cobra.Command {
 		Use:   "statefiles",
 		Short: "Manage workspace statefiles",
 	}
-	cmd.PersistentFlags().StringVar(&target.project, "project", "", "Project name or UUID (or KH_PROJECT)")
+	cmd.PersistentFlags().StringVar(&target.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&target.workspace, "workspace", "", "Workspace name or UUID")
 	cmd.AddCommand(newStatefilesListCmd(target))
 	cmd.AddCommand(newStatefilesLastCmd(target))

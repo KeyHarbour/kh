@@ -31,7 +31,7 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject s
 	}
 	if backendType == "http" {
 		if endpoint == "" {
-			endpoint = "https://api.keyharbour.ca"
+			endpoint = "https://api.keyharbour.test"
 		}
 		// Normalize endpoint (no trailing slash)
 		endpoint = strings.TrimRight(endpoint, "/")
@@ -247,7 +247,7 @@ func newInitProjectCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.Load()
 			if endpoint == "" {
-				endpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.ca")
+				endpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.test")
 			}
 			if org == "" {
 				org = config.FromEnvOr(cfg, "KH_ORG", "")
@@ -278,7 +278,7 @@ func newInitProjectCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&env, "env", "e", "", "Environment (e.g., dev, staging, prod) (required)")
 	cmd.Flags().StringVarP(&module, "module", "m", "infra", "Module/component name")
 	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "Base directory to scaffold into")
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "KeyHarbour API endpoint (defaults to KH_ENDPOINT or https://api.keyharbour.ca)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "KeyHarbour API endpoint (defaults to KH_ENDPOINT or https://api.keyharbour.test)")
 	cmd.Flags().StringVar(&org, "org", "", "KeyHarbour organization (defaults to KH_ORG)")
 	cmd.Flags().StringVar(&khProj, "kh-project", "", "KeyHarbour project (defaults to KH_PROJECT)")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing files")

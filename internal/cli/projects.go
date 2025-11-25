@@ -42,11 +42,11 @@ func newProjectsListCmd() *cobra.Command {
 
 func newProjectsShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show <name-or-uuid>",
+		Use:   "show <project-uuid>",
 		Short: "Show a project's details",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("projects show requires exactly one argument: <name-or-uuid>")
+				return fmt.Errorf("projects show requires exactly one argument: <project-uuid>")
 			}
 			return nil
 		},

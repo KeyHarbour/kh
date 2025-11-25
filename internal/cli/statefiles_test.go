@@ -31,6 +31,7 @@ func (f *fakeResolver) ResolveWorkspace(ctx context.Context, projectUUID, ref st
 }
 
 func TestStatefileTargetResolveUsesConfigDefaults(t *testing.T) {
+	t.Setenv("KH_PROJECT", "")
 	target := statefileTarget{workspace: "ws"}
 	cfg := config.Config{Project: "cfg-project"}
 	res := &fakeResolver{}

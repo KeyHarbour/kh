@@ -23,7 +23,7 @@ func newWorkspacesCmd() *cobra.Command {
 		Use:   "workspaces",
 		Short: "Inspect project workspaces",
 	}
-	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project name or UUID (or KH_PROJECT)")
+	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.AddCommand(newWorkspacesListCmd(opts))
 	cmd.AddCommand(newWorkspacesShowCmd(opts))
 	return cmd

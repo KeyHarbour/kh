@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"kh/internal/backend"
@@ -188,6 +189,17 @@ func newImportCmd() *cobra.Command {
 					return r.Err
 				}
 			}
+
+			if report != "" {
+				if err := writeImportReport(report, sum); err != nil {
+					return fmt.Errorf("failed to write import report: %w", err)
+				}
+			}
+
+			if outPath != "" || report != "" {
+				return nil
+			}
+
 			// KH ingest not implemented yet
 			return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("Key-Harbour API client not implemented: cannot import yet"))
 		},
@@ -228,4 +240,24 @@ func sanitizePath(s string) string {
 	s = strings.ReplaceAll(s, ":", "_")
 	s = strings.ReplaceAll(s, " ", "_")
 	return s
+}
+
+func writeImportReport(path string, data any) error {
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(data)
 }

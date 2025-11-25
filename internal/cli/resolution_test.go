@@ -16,22 +16,30 @@ func newIPv4Server(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	return httptest.NewServer(handler)
 }
 
-func TestResolveProjectRefByName(t *testing.T) {
+func TestResolveProjectRefRequiresUUID(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+
+	client := khclient.New(config.Config{Endpoint: srv.URL})
+	if _, err := resolveProjectRef(context.Background(), client, "demo"); err == nil {
+		t.Fatalf("expected error when project uuid not found")
+	}
+}
+
+func TestResolveProjectRefByUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/projects":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]khclient.Project{{UUID: "p-1", Name: "demo"}})
 		case "/v1/projects/p-1":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(khclient.Project{Name: "demo"})
+			json.NewEncoder(w).Encode(khclient.Project{UUID: "p-1", Name: "demo"})
 		default:
 			http.NotFound(w, r)
 		}
 	})
 
 	client := khclient.New(config.Config{Endpoint: srv.URL})
-	proj, err := resolveProjectRef(context.Background(), client, "demo")
+	proj, err := resolveProjectRef(context.Background(), client, "p-1")
 	if err != nil {
 		t.Fatalf("expected nil err, got %v", err)
 	}
