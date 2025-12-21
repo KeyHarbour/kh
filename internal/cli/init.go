@@ -65,7 +65,7 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject s
 	switch backendType {
 	case "http":
 		files[filepath.Join(target, "backend.tf")] = terraformBackendTF()
-		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCL(endpoint, stateID)
+		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCLLegacy(endpoint, stateID)
 	case "cloud":
 		if tfcOrg == "" {
 			return "", errors.New("--tfc-org (or TF_CLOUD_ORGANIZATION) is required for --backend=cloud")
@@ -114,8 +114,9 @@ func terraformCloudBlock(org, workspace string) string {
 }`, org, workspace)
 }
 
-func terraformBackendHCL(endpoint, stateID string) string {
-	// HTTP backend with explicit lock/unlock routes
+// terraformBackendHCLLegacy generates backend.hcl using the legacy /api/v1/states/{stateID} format
+// Used by init project when UUIDs are not available
+func terraformBackendHCLLegacy(endpoint, stateID string) string {
 	return fmt.Sprintf(`address        = "%s/api/v1/states/%s"
 lock_address   = "%s/api/v1/states/%s/lock"
 unlock_address = "%s/api/v1/states/%s/unlock"
@@ -123,6 +124,19 @@ lock_method    = "POST"
 unlock_method  = "POST"
 retry_max      = 2
 `, endpoint, stateID, endpoint, stateID, endpoint, stateID)
+}
+
+// terraformBackendHCL generates backend.hcl using the statefile API with project/workspace UUIDs
+func terraformBackendHCL(endpoint, projectUUID, workspaceUUID string) string {
+	// HTTP backend using the statefile API
+	basePath := fmt.Sprintf("%s/v1/projects/%s/workspaces/%s/state", endpoint, projectUUID, workspaceUUID)
+	return fmt.Sprintf(`address        = "%s"
+lock_address   = "%s/lock"
+unlock_address = "%s/lock"
+lock_method    = "POST"
+unlock_method  = "DELETE"
+retry_max      = 2
+`, basePath, basePath, basePath)
 }
 
 func terraformVersionsTF() string {

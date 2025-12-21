@@ -13,10 +13,6 @@ import (
 // TestTFCToKeyHarbourMigration exercises a full migration flow from
 // Terraform Cloud into KeyHarbour using the tmp/app/dev project.
 //
-// KNOWN ISSUE (2025-11-24): This test currently fails due to a KeyHarbour backend bug
-// where workspace UUIDs are incorrectly set to match the project UUID. This causes
-// the statefile upload endpoint to return 404. See BACKEND_BUG.md for details.
-//
 // This test is intentionally environment-driven and will be skipped unless
 // the required environment variables and binaries are available:
 //
@@ -31,7 +27,6 @@ import (
 //   - terraform is available on PATH
 //   - kh binary has been built at ./bin/kh from the repo root
 //   - A KeyHarbour backend is reachable at KH_ENDPOINT
-//   - KeyHarbour workspaces have unique UUIDs (not matching project UUID)
 //
 // When enabled, the test will:
 //  1. Change directory to tmp/app/dev
@@ -75,10 +70,6 @@ func TestTFCToKeyHarbourMigration(t *testing.T) {
 	if _, err := os.Stat(khPath); err != nil {
 		t.Skip("kh binary not found at ./bin/kh; run `make build` first")
 	}
-
-	// Check for the known KeyHarbour backend bug where workspace UUIDs match project UUID
-	// This causes statefile uploads to fail with 404
-	t.Skip("KNOWN ISSUE: KeyHarbour backend returns workspace UUIDs matching project UUID, causing statefile upload to fail with 404. See BACKEND_BUG.md for details.")
 
 	// Work in tmp/app/dev.
 	projectDir := filepath.Join(repoRoot, "tmp", "app", "dev")

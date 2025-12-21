@@ -48,6 +48,7 @@ type MigrationReport struct {
 // WorkspaceMigration represents migration details for a single workspace
 type WorkspaceMigration struct {
 	Workspace      string           `json:"workspace"`
+	WorkspaceUUID  string           `json:"workspace_uuid"`
 	StateID        string           `json:"state_id"`
 	SourceSize     int64            `json:"source_size"`
 	SourceChecksum string           `json:"source_checksum"`
@@ -269,6 +270,7 @@ func newMigrateAutoCmd() *cobra.Command {
 					}
 					continue
 				}
+				wsMigration.WorkspaceUUID = workspaceEntity.UUID
 
 				wsMigration.SourceSize = int64(len(stateData))
 				wsMigration.SourceChecksum = state.SHA256Hex(stateData)
@@ -443,17 +445,17 @@ func newMigrateAutoCmd() *cobra.Command {
 					}
 				}
 
-				// Use first successful workspace for state ID template
-				var firstStateID string
+				// Use first successful workspace for backend.hcl generation
+				var firstWorkspaceUUID string
 				for _, wm := range report.Workspaces {
 					if wm.Success {
-						firstStateID = wm.StateID
+						firstWorkspaceUUID = wm.WorkspaceUUID
 						break
 					}
 				}
 
 				backendTF := terraformBackendTF()
-				backendHCL := terraformBackendHCL(khEndpoint, firstStateID)
+				backendHCL := terraformBackendHCL(khEndpoint, projectUUID, firstWorkspaceUUID)
 
 				if err := os.WriteFile(newBackendPath, []byte(backendTF), 0o644); err != nil {
 					return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("failed to write backend.tf: %w", err))
