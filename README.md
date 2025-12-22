@@ -71,6 +71,11 @@ cd /path/to/terraform/project
 kh migrate auto --project=myapp --dry-run  # preview
 kh migrate auto --project=myapp            # execute migration
 
+# Bulk migrate all TFC workspaces to KeyHarbour
+kh tfc list-workspaces --tfc-org MyOrg     # discover workspaces
+kh migrate auto --all --tfc-org MyOrg --create-workspace --dry-run  # preview
+kh migrate auto --all --tfc-org MyOrg --create-workspace  # migrate all
+
 # Show version
 kh --version
 kh --version -o json
@@ -403,6 +408,39 @@ kh tfc upload-state \
 	-o json
 ```
 
+### tfc list-workspaces
+
+List all workspaces in a Terraform Cloud organization. Useful for discovering workspaces before bulk migration.
+
+Usage:
+
+```zsh
+kh tfc list-workspaces --tfc-org MyOrg
+```
+
+Flags:
+
+```text
+--tfc-org string         Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-host string        Terraform Cloud hostname (default: https://app.terraform.io)
+--tfc-token string       API token; can be provided via TF_API_TOKEN/TFC_TOKEN
+```
+
+Example output:
+
+```json
+{
+  "organization": "MyOrg",
+  "count": 4,
+  "workspaces": [
+    {"id": "ws-abc123", "name": "app-staging"},
+    {"id": "ws-def456", "name": "app-production"},
+    {"id": "ws-ghi789", "name": "infra-shared"},
+    {"id": "ws-jkl012", "name": "cli-migration-test"}
+  ]
+}
+```
+
 ### migrate
 
 Automate migration of Terraform projects from any backend to KeyHarbour. The `migrate` command simplifies the process by:
@@ -481,6 +519,10 @@ Flags:
 --endpoint string          KeyHarbour API endpoint (or use KH_ENDPOINT)
 --org string               KeyHarbour organization (or use KH_ORG)
 --kh-project string        Alternative to --project flag
+--all                      Migrate all workspaces from TFC organization
+--tfc-org string           Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-workspace string     Terraform Cloud workspace name (or TF_WORKSPACE)
+--create-workspace         Auto-create workspace in KeyHarbour if it doesn't exist
 ```
 
 Environment variables:
@@ -523,6 +565,50 @@ This will:
 - Migrate each workspace independently
 - Continue processing remaining workspaces even if one fails
 - Report overall success/failure counts
+
+**Bulk Migration from Terraform Cloud:**
+
+Use `--all` with `--tfc-org` to migrate all workspaces from a Terraform Cloud organization to KeyHarbour:
+
+```zsh
+# List all TFC workspaces first (for discovery)
+kh tfc list-workspaces --tfc-org MyOrg
+
+# Preview bulk migration (dry-run)
+kh migrate auto --all --tfc-org MyOrg --create-workspace --dry-run
+
+# Migrate all TFC workspaces to KeyHarbour (creates workspaces automatically)
+kh migrate auto --all --tfc-org MyOrg --create-workspace
+
+# Migrate with custom KeyHarbour project
+kh migrate auto --all --tfc-org MyOrg --create-workspace --project=myproject
+```
+
+TFC-specific flags:
+
+```text
+--all                      Migrate all workspaces from TFC organization
+--tfc-org string           Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)
+--tfc-workspace string     Specific TFC workspace to migrate (when not using --all)
+--create-workspace         Auto-create workspaces in KeyHarbour if they don't exist
+```
+
+> **Note:** TFC workspace names with dashes/underscores are automatically sanitized for KeyHarbour compatibility:
+> - `app-staging` → `appstaging`
+> - `infra-shared` → `infrashared`
+> - `my_workspace` → `myworkspace`
+
+**Single Workspace Migration from TFC:**
+
+To migrate a specific TFC workspace to a specific KeyHarbour workspace:
+
+```zsh
+# Migrate from TFC workspace to existing KeyHarbour workspace
+kh migrate auto --tfc-org MyOrg --tfc-workspace app-prod --workspace Wks001
+
+# Or create the workspace if it doesn't exist
+kh migrate auto --tfc-org MyOrg --tfc-workspace app-prod --create-workspace
+```
 
 **State Validation:**
 

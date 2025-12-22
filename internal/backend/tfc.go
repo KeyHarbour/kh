@@ -135,4 +135,76 @@ func (r *TFCReader) getCurrentStateDownloadURL(ctx context.Context, wsID string)
 	return out.Data.Attributes.HostedStateDownloadURL, nil
 }
 
+// TFCWorkspace represents a workspace from Terraform Cloud
+type TFCWorkspace struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListAllWorkspaces lists all workspaces in a Terraform Cloud organization
+func (r *TFCReader) ListAllWorkspaces(ctx context.Context) ([]TFCWorkspace, error) {
+	if r.Org == "" {
+		return nil, errors.New("tfc: org is required")
+	}
+
+	var allWorkspaces []TFCWorkspace
+	pageNumber := 1
+	pageSize := 100
+
+	for {
+		u := fmt.Sprintf("%s/api/v2/organizations/%s/workspaces?page[number]=%d&page[size]=%d",
+			r.Host, url.PathEscape(r.Org), pageNumber, pageSize)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+r.Token)
+		req.Header.Set("Content-Type", "application/vnd.api+json")
+
+		resp, err := r.HTTP.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("tfc list workspaces: %s", resp.Status)
+		}
+
+		var out struct {
+			Data []struct {
+				ID         string `json:"id"`
+				Attributes struct {
+					Name string `json:"name"`
+				} `json:"attributes"`
+			} `json:"data"`
+			Meta struct {
+				Pagination struct {
+					CurrentPage int `json:"current-page"`
+					TotalPages  int `json:"total-pages"`
+				} `json:"pagination"`
+			} `json:"meta"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+
+		for _, ws := range out.Data {
+			allWorkspaces = append(allWorkspaces, TFCWorkspace{
+				ID:   ws.ID,
+				Name: ws.Attributes.Name,
+			})
+		}
+
+		if pageNumber >= out.Meta.Pagination.TotalPages {
+			break
+		}
+		pageNumber++
+	}
+
+	return allWorkspaces, nil
+}
+
 // end

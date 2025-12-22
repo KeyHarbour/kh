@@ -126,6 +126,9 @@ func newMigrateAutoCmd() *cobra.Command {
 		// TFC source options (when migrating from Terraform Cloud)
 		tfcOrg       string
 		tfcWorkspace string
+		// Bulk migration options
+		migrateAll      bool
+		createWorkspace bool
 	)
 
 	cmd := &cobra.Command{
@@ -249,6 +252,57 @@ func newMigrateAutoCmd() *cobra.Command {
 				}
 			}
 
+			// If --tfc-org is provided, override backend to TFC for source state retrieval
+			// (even if local backend was detected)
+			if tfcOrg != "" && backendCfg.Type != "tfc" && backendCfg.Type != "cloud" {
+				backendCfg.Type = "tfc"
+				backendCfg.Config["organization"] = tfcOrg
+			}
+
+			// Handle --all flag: list all TFC workspaces and migrate them
+			// This works even if local backend is detected - we override to pull from TFC
+			if migrateAll {
+				if tfcOrg == "" {
+					// Try environment variable
+					if v := os.Getenv("TF_CLOUD_ORGANIZATION"); v != "" {
+						tfcOrg = v
+					}
+				}
+				if tfcOrg == "" {
+					return exitcodes.With(exitcodes.ValidationError, errors.New("--tfc-org is required for --all"))
+				}
+
+				tfcToken := os.Getenv("TF_API_TOKEN")
+				if tfcToken == "" {
+					tfcToken = os.Getenv("TFC_TOKEN")
+				}
+				if tfcToken == "" {
+					tfcToken = os.Getenv("TF_TOKEN_app_terraform_io")
+				}
+				if tfcToken == "" {
+					return exitcodes.With(exitcodes.AuthError, errors.New("TF_API_TOKEN required for --all"))
+				}
+
+				logging.Debugf("Listing all workspaces in TFC org %s", tfcOrg)
+				tfcReader := backend.NewTFCReader("https://app.terraform.io", tfcOrg, "", tfcToken)
+				tfcWorkspaces, err := tfcReader.ListAllWorkspaces(cmd.Context())
+				if err != nil {
+					return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("failed to list TFC workspaces: %w", err))
+				}
+				logging.Debugf("Found %d TFC workspaces", len(tfcWorkspaces))
+
+				// Use TFC workspace names as the workspaces to migrate
+				workspaces = make([]string, len(tfcWorkspaces))
+				for i, w := range tfcWorkspaces {
+					workspaces[i] = w.Name
+				}
+				batchMode = true // Enable batch mode for multiple workspaces
+
+				// Override backend to TFC for state retrieval
+				backendCfg.Type = "tfc"
+				backendCfg.Config["organization"] = tfcOrg
+			}
+
 			// Step 3: Migrate each workspace
 			for _, ws := range workspaces {
 				wsMigration := WorkspaceMigration{
@@ -287,17 +341,40 @@ func newMigrateAutoCmd() *cobra.Command {
 				}
 
 				ctxResolveWs, cancelWs := context.WithTimeout(cmd.Context(), 30*time.Second)
-				workspaceEntity, err := resolver.ResolveWorkspace(ctxResolveWs, projectUUID, ws)
-				cancelWs()
-				if err != nil {
-					wsMigration.Success = false
-					wsMigration.Error = fmt.Sprintf("failed to resolve KeyHarbour workspace %q: %v", ws, err)
-					report.Workspaces = append(report.Workspaces, wsMigration)
-					report.Errors = append(report.Errors, wsMigration.Error)
-					if !batchMode {
-						return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("workspace resolution failed: %w", err))
+				var workspaceEntity khclient.Workspace
+				if createWorkspace {
+					// Auto-create workspace if it doesn't exist
+					// Sanitize the workspace name for KeyHarbour (letters and numbers only)
+					targetWsName := sanitizeWorkspaceName(ws)
+					if targetWsName != ws {
+						logging.Debugf("Sanitized workspace name: %s -> %s", ws, targetWsName)
 					}
-					continue
+					workspaceEntity, _, err = client.GetOrCreateWorkspace(ctxResolveWs, projectUUID, targetWsName)
+					cancelWs()
+					if err != nil {
+						wsMigration.Success = false
+						wsMigration.Error = fmt.Sprintf("failed to get/create KeyHarbour workspace %q: %v", targetWsName, err)
+						report.Workspaces = append(report.Workspaces, wsMigration)
+						report.Errors = append(report.Errors, wsMigration.Error)
+						if !batchMode {
+							return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("workspace get/create failed: %w", err))
+						}
+						continue
+					}
+				} else {
+					// Resolve existing workspace only
+					workspaceEntity, err = resolver.ResolveWorkspace(ctxResolveWs, projectUUID, ws)
+					cancelWs()
+					if err != nil {
+						wsMigration.Success = false
+						wsMigration.Error = fmt.Sprintf("failed to resolve KeyHarbour workspace %q: %v", ws, err)
+						report.Workspaces = append(report.Workspaces, wsMigration)
+						report.Errors = append(report.Errors, wsMigration.Error)
+						if !batchMode {
+							return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("workspace resolution failed: %w", err))
+						}
+						continue
+					}
 				}
 				wsMigration.WorkspaceUUID = workspaceEntity.UUID
 
@@ -604,6 +681,10 @@ func newMigrateAutoCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (overrides detected config, or TF_CLOUD_ORGANIZATION)")
 	cmd.Flags().StringVar(&tfcWorkspace, "tfc-workspace", "", "Terraform Cloud workspace name (overrides detected config, or TF_WORKSPACE)")
 
+	// Bulk migration options
+	cmd.Flags().BoolVar(&migrateAll, "all", false, "Migrate all workspaces from TFC organization")
+	cmd.Flags().BoolVar(&createWorkspace, "create-workspace", false, "Auto-create workspace in KeyHarbour if it doesn't exist")
+
 	return cmd
 }
 
@@ -822,6 +903,19 @@ func sanitizeID(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 	s = strings.ReplaceAll(s, "_", "-")
 	return s
+}
+
+// sanitizeWorkspaceName converts a TFC workspace name to a KeyHarbour-compatible name
+// KeyHarbour only allows letters and numbers in workspace names
+// e.g., "app-staging" -> "appstaging", "infra_shared" -> "infrashared"
+func sanitizeWorkspaceName(s string) string {
+	var result strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }
 
 // discoverWorkspaces finds all workspaces in a Terraform project

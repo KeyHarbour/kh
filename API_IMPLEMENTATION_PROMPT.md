@@ -40,6 +40,25 @@ Implement the following JSON API endpoints under the `/v1/` namespace:
 ]
 ```
 
+**POST /v1/projects/:project_uuid/workspaces** ⚠️ NEW - REQUIRED FOR BULK MIGRATION
+- Create a new workspace in a project
+- Request body:
+```json
+{
+  "workspace": {
+    "name": "cli-migration-test"
+  }
+}
+```
+- Response (201 Created):
+```json
+{
+  "uuid": "new-workspace-uuid",
+  "name": "cli-migration-test"
+}
+```
+- Returns 422 if workspace name already exists in the project
+
 **GET /v1/projects/:project_uuid/workspaces/:workspace_uuid**
 - Get workspace details by UUID
 - Response (200 OK):

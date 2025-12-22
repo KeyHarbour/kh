@@ -18,6 +18,7 @@ func newTFCCmd() *cobra.Command {
 		Short: "Terraform Cloud utilities",
 	}
 	cmd.AddCommand(newTFCUploadStateCmd())
+	cmd.AddCommand(newTFCListWorkspacesCmd())
 	return cmd
 }
 
@@ -118,5 +119,70 @@ func newTFCUploadStateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&host, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL")
 	cmd.Flags().StringVar(&token, "tfc-token", "", "Terraform Cloud API token (or TF_API_TOKEN/TFC_TOKEN)")
 	cmd.Flags().BoolVar(&adoptLineage, "adopt-lineage", false, "Fetch current workspace lineage and adopt it into the local state before upload (resolves 409 lineage conflicts)")
+	return cmd
+}
+
+func newTFCListWorkspacesCmd() *cobra.Command {
+	var org, host, token string
+
+	cmd := &cobra.Command{
+		Use:   "list-workspaces",
+		Short: "List all workspaces in a Terraform Cloud organization",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+
+			if org == "" {
+				org = os.Getenv("TF_CLOUD_ORGANIZATION")
+			}
+			if token == "" {
+				if v := os.Getenv("TF_API_TOKEN"); v != "" {
+					token = v
+				}
+				if token == "" {
+					if v := os.Getenv("TFC_TOKEN"); v != "" {
+						token = v
+					}
+				}
+				if token == "" {
+					if v := os.Getenv("TF_TOKEN_app_terraform_io"); v != "" {
+						token = v
+					}
+				}
+			}
+			if host == "" {
+				host = "https://app.terraform.io"
+			}
+			if org == "" || token == "" {
+				return errors.New("--tfc-org and a token (TF_API_TOKEN/TFC_TOKEN) are required")
+			}
+
+			r := backend.NewTFCReader(host, org, "", token)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+			defer cancel()
+
+			workspaces, err := r.ListAllWorkspaces(ctx)
+			if err != nil {
+				return err
+			}
+
+			// Convert to output format
+			wsOutput := make([]map[string]string, len(workspaces))
+			for i, ws := range workspaces {
+				wsOutput[i] = map[string]string{
+					"id":   ws.ID,
+					"name": ws.Name,
+				}
+			}
+
+			return printer.JSON(map[string]any{
+				"organization": org,
+				"count":        len(workspaces),
+				"workspaces":   wsOutput,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&org, "tfc-org", "", "Terraform Cloud organization (or TF_CLOUD_ORGANIZATION)")
+	cmd.Flags().StringVar(&host, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL")
+	cmd.Flags().StringVar(&token, "tfc-token", "", "Terraform Cloud API token (or TF_API_TOKEN/TFC_TOKEN)")
 	return cmd
 }
