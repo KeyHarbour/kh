@@ -123,6 +123,9 @@ func newMigrateAutoCmd() *cobra.Command {
 		reportPath   string
 		rollback     bool
 		rollbackFrom string
+		// TFC source options (when migrating from Terraform Cloud)
+		tfcOrg       string
+		tfcWorkspace string
 	)
 
 	cmd := &cobra.Command{
@@ -227,16 +230,42 @@ func newMigrateAutoCmd() *cobra.Command {
 			}
 			report.BackupLocation = backupDir
 
+			// For TFC backends, allow overriding org/workspace from flags
+			if backendCfg.Type == "tfc" || backendCfg.Type == "cloud" {
+				if tfcOrg == "" {
+					// Try environment variable
+					if v := os.Getenv("TF_CLOUD_ORGANIZATION"); v != "" {
+						tfcOrg = v
+					}
+				}
+				if tfcOrg != "" {
+					backendCfg.Config["organization"] = tfcOrg
+				}
+				if tfcWorkspace == "" {
+					// Try environment variable
+					if v := os.Getenv("TF_WORKSPACE"); v != "" {
+						tfcWorkspace = v
+					}
+				}
+			}
+
 			// Step 3: Migrate each workspace
 			for _, ws := range workspaces {
 				wsMigration := WorkspaceMigration{
 					Workspace: ws,
 				}
 
-				logging.Debugf("Migrating workspace: %s", ws)
+				// Determine source workspace for state retrieval
+				// For TFC, use --tfc-workspace if provided, otherwise fall back to target workspace name
+				sourceWorkspace := ws
+				if (backendCfg.Type == "tfc" || backendCfg.Type == "cloud") && tfcWorkspace != "" {
+					sourceWorkspace = tfcWorkspace
+				}
 
-				// Retrieve state
-				stateData, stateMeta, err := retrieveState(cmd.Context(), backendCfg, ws)
+				logging.Debugf("Migrating workspace: %s (source: %s)", ws, sourceWorkspace)
+
+				// Retrieve state from source
+				stateData, stateMeta, err := retrieveState(cmd.Context(), backendCfg, sourceWorkspace)
 				if err != nil {
 					wsMigration.Success = false
 					wsMigration.Error = fmt.Sprintf("failed to retrieve state: %v", err)
@@ -570,6 +599,10 @@ func newMigrateAutoCmd() *cobra.Command {
 	cmd.Flags().StringVar(&reportPath, "report", "", "Write detailed migration report to file (JSON)")
 	cmd.Flags().BoolVar(&rollback, "rollback", false, "Rollback migration from backup")
 	cmd.Flags().StringVar(&rollbackFrom, "rollback-from", "", "Backup directory to rollback from (defaults to .kh-migrate-backup)")
+
+	// TFC source options (for migrating from Terraform Cloud)
+	cmd.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (overrides detected config, or TF_CLOUD_ORGANIZATION)")
+	cmd.Flags().StringVar(&tfcWorkspace, "tfc-workspace", "", "Terraform Cloud workspace name (overrides detected config, or TF_WORKSPACE)")
 
 	return cmd
 }

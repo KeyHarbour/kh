@@ -1,0 +1,496 @@
+---
+openapi: 3.0.1
+info:
+  title: API V1
+  version: v1
+servers:
+- url: https://api.keyharbour.test
+  description: API Serveur
+  variables:
+    defaultHost:
+      default: https://api.keyharbour.test
+components:
+  schemas:
+    Created:
+      type: object
+      properties:
+        status:
+          type: string
+          example: accepted
+    Updated:
+      type: object
+      properties:
+        status:
+          type: string
+          example: updated
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+- bearerAuth: []
+paths:
+  "/v1/auth":
+    get:
+      summary: auth application
+      tags:
+      - Authentification
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Access granted
+        '401':
+          description: Unauthorized
+  "/v1/projects/{uuid}":
+    get:
+      summary: get project detail
+      tags:
+      - Projects
+      parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  name:
+                    type: string
+                  environment_names:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - uuid
+                - name
+                - environments
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    patch:
+      summary: update project detail
+      tags:
+      - Projects
+      parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Updated"
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                environment_names:
+                  type: array
+                  items:
+                    type: string
+              required:
+              - name
+              - environment_names
+  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles":
+    get:
+      summary: Get all statefiles
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    content:
+                      type: string
+                    uuid:
+                      type: string
+                    published_at:
+                      type: string
+                      format: date_time
+                  required:
+                  - content
+                  - uuid
+                  - published_at
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    delete:
+      summary: delete all statefiles
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: no content
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    post:
+      summary: Push new statefile
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: query
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Statefile created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Created"
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+              required:
+              - content
+  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles/last":
+    get:
+      summary: Get last statefile
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  published_at:
+                    type: string
+                    format: date-time
+                required:
+                - content
+                - published_at
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles/{uuid}":
+    get:
+      summary: Get a specific statefile
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  published_at:
+                    type: string
+                    format: date-time
+                required:
+                - content
+                - published_at
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    delete:
+      summary: Delete a specific statefile
+      tags:
+      - Statefiles
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: no content
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+  "/v1/projects/{project_uuid}/workspaces":
+    get:
+      summary: Get all workspaces
+      tags:
+      - Workspaces
+      parameters:
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    uuid:
+                      type: string
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    post:
+      summary: Create a new workspace
+      tags:
+      - Workspaces
+      parameters:
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Created"
+        '400':
+          description: Bad Request
+        '422':
+          description: Unprocessable Entity
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+              required:
+              - content
+  "/v1/projects/{project_uuid}/workspaces/{uuid}":
+    get:
+      summary: Get a specific workspace
+      tags:
+      - Workspaces
+      parameters:
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                required:
+                - uuid
+                - name
+                - description
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    patch:
+      summary: Update a specific workspace
+      tags:
+      - Workspaces
+      parameters:
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Updated"
+        '400':
+          description: Bad Request
+        '422':
+          description: Unprocessable Entity
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+              required:
+              - name
+              - description
+    delete:
+      summary: Delete a workspace
+      tags:
+      - Workspaces
+      parameters:
+      - name: project_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: no content
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
