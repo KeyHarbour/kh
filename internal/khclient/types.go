@@ -32,10 +32,10 @@ type StatefileCreatedResponse struct {
 }
 
 type Project struct {
-	UUID             string   `json:"uuid"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description,omitempty"`
-	EnvironmentNames []string `json:"environment_names,omitempty"`
+	UUID         string   `json:"uuid"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Environments []string `json:"environments,omitempty"`
 }
 
 type Workspace struct {

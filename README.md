@@ -132,6 +132,21 @@ kh export tfstate --to=file --out ./backup.tfstate --project <uuid> --workspace 
 kh export tfstate --to=http --url https://other-backend.com/state
 ```
 
+### Syncing State (`sync`)
+
+Sync allows you to upload state from a backend (Local, HTTP, Terraform Cloud) directly to KeyHarbour without modifying local files. This is useful for CI/CD pipelines pushing state to KeyHarbour.
+
+```zsh
+# Sync a local file to a specific workspace
+kh sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
+
+# Sync from HTTP backend
+kh sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <name>
+
+# Sync from Terraform Cloud (auto-create workspace)
+kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
+```
+
 ### Version Control (`statefiles`)
 
 Manage state file versions specifically for a workspace.

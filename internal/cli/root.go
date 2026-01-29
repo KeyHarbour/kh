@@ -72,6 +72,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUnlockCmd())
 	cmd.AddCommand(newCompletionCmd(cmd))
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newTFCCmd())
 	cmd.AddCommand(newHTTPCmd())
 	// version is available via the global --version flag; no separate subcommand required

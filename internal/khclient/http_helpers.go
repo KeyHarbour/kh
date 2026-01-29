@@ -38,9 +38,11 @@ func parseAPIError(resp *http.Response) error {
 	// Limit read to 8KB then truncate to 300 chars for display
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	var payload struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
-		Detail  string `json:"detail"`
+		Error   string   `json:"error"`
+		Message string   `json:"message"`
+		Detail  string   `json:"detail"`
+		Errors  []string `json:"errors"`
+		Status  string   `json:"status"`
 	}
 	if len(data) > 0 {
 		_ = json.Unmarshal(data, &payload)
@@ -51,6 +53,16 @@ func parseAPIError(resp *http.Response) error {
 	}
 	if msg == "" {
 		msg = payload.Detail
+	}
+	// Check for validation errors array
+	if len(payload.Errors) > 0 {
+		msg = strings.Join(payload.Errors, "; ")
+	}
+	// Add helpful hints for common 422 errors
+	if resp.StatusCode == 422 && msg == "" {
+		if payload.Status == "unprocessable_entity" {
+			msg = "validation failed (check: workspace name must be alphanumeric, environment must match project environments)"
+		}
 	}
 	bodySnippet := strings.TrimSpace(string(data))
 	if len(bodySnippet) > 300 {

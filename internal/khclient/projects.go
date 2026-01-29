@@ -2,14 +2,16 @@ package khclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 )
 
 // CreateWorkspaceRequest represents the request body for creating a workspace
 type CreateWorkspaceRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	EnvironmentID *int   `json:"environment_id,omitempty"`
 }
 
 // CreateWorkspaceResponse represents the response from creating a workspace
@@ -89,6 +91,10 @@ func (c *Client) CreateWorkspace(ctx context.Context, projectUUID string, req Cr
 	if req.Name == "" {
 		return Workspace{}, APIError{StatusCode: http.StatusBadRequest, Message: "workspace name is required"}
 	}
+	// Validate workspace name (alphanumeric only)
+	if !isAlphanumeric(req.Name) {
+		return Workspace{}, APIError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf("workspace name %q must contain only letters and numbers (no hyphens or special characters)", req.Name)}
+	}
 	resp, err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectUUID)+"/workspaces", nil, req, nil)
 	if err != nil {
 		return Workspace{}, err
@@ -106,7 +112,34 @@ func (c *Client) CreateWorkspace(ctx context.Context, projectUUID string, req Cr
 	if out.Name == "" {
 		out.Name = req.Name
 	}
+	// If UUID is not in the response, we need to fetch the workspace by name
+	if out.UUID == "" {
+		// List workspaces and find by name
+		workspaces, listErr := c.ListWorkspaces(ctx, projectUUID)
+		if listErr != nil {
+			return out, nil // Return without UUID rather than failing
+		}
+		for _, ws := range workspaces {
+			if ws.Name == req.Name {
+				out.UUID = ws.UUID
+				break
+			}
+		}
+	}
 	return out, nil
+}
+
+// isAlphanumeric checks if a string contains only letters and numbers
+func isAlphanumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 // GetOrCreateWorkspace gets a workspace by name, or creates it if it doesn't exist
