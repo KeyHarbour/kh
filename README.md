@@ -94,6 +94,8 @@ Migrate all workspaces in a directory (common with `terraform workspace` usage):
 kh migrate auto --project <project-uuid> --batch
 ```
 
+**Note:** Workspace names are automatically sanitized to be alphanumeric-only during migration. Names with hyphens will be converted (e.g., `prod-app` → `prodapp`).
+
 ### Importing from Terraform Cloud
 
 Migrate an entire organization from Terraform Cloud:
@@ -136,6 +138,11 @@ kh export tfstate --to=http --url https://other-backend.com/state
 
 Sync allows you to upload state from a backend (Local, HTTP, Terraform Cloud) directly to KeyHarbour without modifying local files. This is useful for CI/CD pipelines pushing state to KeyHarbour.
 
+**Features:**
+- **Auto-sanitizes workspace names** - Removes hyphens and special characters (only alphanumeric allowed)
+- **Auto-detects environment** - Uses the project's first available environment if not specified
+- **Better error messages** - Provides helpful validation hints for common issues
+
 ```zsh
 # Sync a local file to a specific workspace
 kh sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
@@ -145,7 +152,12 @@ kh sync --from=http --url https://old-backend.com/state --project <uuid> --works
 
 # Sync from Terraform Cloud (auto-create workspace)
 kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
+
+# Specify environment explicitly (otherwise uses project's first environment)
+kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --env <env-name> --create-workspace
 ```
+
+**Note:** Workspace names must be alphanumeric only. Names with hyphens (e.g., `my-prod-app`) will be automatically sanitized to `myprodapp` with a warning.
 
 ### Version Control (`statefiles`)
 
@@ -241,6 +253,52 @@ pipelines:
 - `4`: Authentication error
 - `5`: Backend I/O error
 - `6`: Lock error
+
+---
+
+## Troubleshooting
+
+### Workspace Name Validation Errors
+
+**Problem:** Getting 422 errors when creating workspaces.
+
+**Solution:** Workspace names must be alphanumeric only (no hyphens, underscores, or special characters). The CLI automatically sanitizes names, but if you see validation errors, check that:
+- Names don't start with numbers
+- Names contain only letters and numbers
+- Environment names match those configured in your project
+
+### Environment Validation Errors
+
+**Problem:** State upload fails with 422 error about environment.
+
+**Solution:** Ensure the environment name matches one of your project's environments. You can:
+```zsh
+# Check available environments
+kh projects show <project-uuid>
+
+# Specify environment explicitly
+kh sync --from=tfc --env=<environment-name> ...
+```
+
+The CLI auto-detects the first available environment if `--env` is not specified.
+
+### Token Expiration
+
+**Problem:** Getting 401 "Invalid or outdated token" errors.
+
+**Solution:** Generate a new token:
+```zsh
+kh login --endpoint https://app.keyharbour.ca
+```
+
+### Debug Mode
+
+For detailed logging of API calls and troubleshooting:
+```zsh
+kh <command> --debug
+# or
+export KH_DEBUG=1
+```
 
 ---
 
