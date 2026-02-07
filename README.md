@@ -112,50 +112,84 @@ kh migrate auto --all --tfc-org MyOrg --create-workspace --project <project-uuid
 
 ## Command Reference
 
-### State Management (`import` / `export`)
-
-Manually move state in and out of KeyHarbour.
-
-**Import State:**
-```zsh
-# Import a local file
-kh import tfstate --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
-
-# Import from Terraform Cloud (Read-Only fetch)
-kh import tfstate --from=tfc --tfc-org <org> --tfc-workspace <ws> --out state.json
-```
-
-**Export State:**
-```zsh
-# Export state to a local file
-kh export tfstate --to=file --out ./backup.tfstate --project <uuid> --workspace <name>
-
-# Push state to another HTTP backend
-kh export tfstate --to=http --url https://other-backend.com/state
-```
-
 ### Syncing State (`sync`)
 
-Sync allows you to upload state from a backend (Local, HTTP, Terraform Cloud) directly to KeyHarbour without modifying local files. This is useful for CI/CD pipelines pushing state to KeyHarbour.
+The unified `sync` command allows bidirectional state transfer between any backends. It supports moving state to and from KeyHarbour, local files, HTTP backends, and Terraform Cloud.
 
-**Features:**
-- **Auto-sanitizes workspace names** - Removes hyphens and special characters (only alphanumeric allowed)
-- **Auto-detects environment** - Uses the project's first available environment if not specified
-- **Better error messages** - Provides helpful validation hints for common issues
+**Supported Sources** (`--from`): `local`, `http`, `tfc`, `keyharbour`  
+**Supported Destinations** (`--to`): `keyharbour`, `file`, `http`, `tfc`
 
+#### Common Use Cases
+
+**1. Import to KeyHarbour (most common)**
 ```zsh
-# Sync a local file to a specific workspace
+# From local file (--to=keyharbour is default)
 kh sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
 
-# Sync from HTTP backend
+# From HTTP backend
 kh sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <name>
 
-# Sync from Terraform Cloud (auto-create workspace)
+# From Terraform Cloud (auto-create workspace if needed)
 kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
 
 # Specify environment explicitly (otherwise uses project's first environment)
 kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --env <env-name> --create-workspace
 ```
+
+**2. Export from KeyHarbour**
+```zsh
+# Export to local file
+kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> --env <env> \
+  --to=file --out ./backup.tfstate
+
+# Export to Terraform Cloud
+kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> --env <env> \
+  --to=tfc --dest-tfc-org <org> --dest-tfc-workspace <ws>
+
+# Export to HTTP backend
+kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> --env <env> \
+  --to=http --dest-url https://other-backend.com/state
+```
+
+**3. Copy Between KeyHarbour Workspaces**
+```zsh
+# Migrate state between projects or workspaces
+kh sync --from=keyharbour --src-project <proj1> --src-workspace <ws1> --env <env> \
+  --to=keyharbour --project <proj2> --workspace <ws2> --create-workspace
+```
+
+**4. Backup Multiple Statefiles**
+```zsh
+# Export all statefiles from a workspace to separate files
+kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> --env <env> \
+  --to=file --out ./backups/{key}.tfstate
+```
+
+#### Advanced Options
+
+```zsh
+# Dry-run mode (preview what will be synced)
+kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --dry-run
+
+# Verify checksums during sync
+kh sync --from=local --path ./state.tfstate --verify-checksum
+
+# Control parallelism
+kh sync --from=keyharbour --src-workspace <ws> --to=file --out ./backup.tfstate --concurrency 8
+
+# Lock state during export (KeyHarbour sources only)
+kh sync --from=keyharbour --src-workspace <ws> --to=file --out ./backup.tfstate --lock
+
+# Workspace pattern filtering (local sources only)
+kh sync --from=local --path ./terraform.tfstate.d --workspace-pattern "prod.*"
+```
+
+**Features:**
+- **Auto-sanitizes workspace names** - Removes hyphens and special characters (only alphanumeric allowed)
+- **Auto-detects environment** - Uses the project's first available environment if not specified
+- **Better error messages** - Provides helpful validation hints for common issues
+- **Concurrent operations** - Process multiple statefiles in parallel with `--concurrency`
+- **File templates** - Use `{workspace}` and `{key}` placeholders in output paths
 
 **Note:** Workspace names must be alphanumeric only. Names with hyphens (e.g., `my-prod-app`) will be automatically sanitized to `myprodapp` with a warning.
 
@@ -216,7 +250,10 @@ kh verify <state-id> --full
 | `KH_ENDPOINT` | KeyHarbour API URL (e.g., `https://api.keyharbour.ca`) |
 | `KH_PROJECT` | Default Project UUID |
 | `KH_ORG` | Default Organization Slug |
+| `KH_CONCURRENCY` | Default concurrency for parallel operations (default: 4) |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
+
+**Note:** All commands support environment variable defaults. For example, if `KH_PROJECT` is set, you don't need to specify `--project` on every command.
 
 ### Config File
 The CLI stores configuration in `~/.kh/config.json`. You can manage it via:

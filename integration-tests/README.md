@@ -99,23 +99,36 @@ Expected: version prints and `/v1/auth` is reachable.
 
 ---
 
-## 4. Import/Export Scenario
+## 4. Sync Scenario
 
-1. Export an existing state to disk:
+1. Export an existing state from KeyHarbour to disk:
    ```bash
-   ./kh export tfstate \
+   ./kh sync \
+     --from=keyharbour \
+     --to=file \
      --project <project> \
      --workspace <workspace> \
      --out "out/{workspace}.tfstate"
    ```
-2. Import it back via HTTP or local mode:
+2. Import it back from local files:
    ```bash
-   ./kh import tfstate \
+   ./kh sync \
      --from=local \
+     --to=keyharbour \
      --path out \
      --project <project> \
      --module infra \
      --dry-run
+   ```
+3. Copy between backends (e.g., TFC → KeyHarbour):
+   ```bash
+   ./kh sync \
+     --from=tfc \
+     --to=keyharbour \
+     --tfc-org <org> \
+     --tfc-workspace <workspace> \
+     --project <project> \
+     --module infra
    ```
 
 ---
