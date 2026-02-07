@@ -137,8 +137,7 @@ func newMigrateAutoCmd() *cobra.Command {
 		Aliases: []string{"project"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
-			cfg, _ := config.Load()
-			client := khclient.New(cfg)
+			cfg, _ := config.LoadWithEnv()
 
 			// Handle rollback mode
 			if rollback {
@@ -156,17 +155,27 @@ func newMigrateAutoCmd() *cobra.Command {
 
 			// Resolve config from flags/env/config
 			if khEndpoint == "" {
-				khEndpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.test")
+				khEndpoint = cfg.Endpoint
+				if khEndpoint == "" {
+					khEndpoint = "https://api.keyharbour.test"
+				}
 			}
 			if khOrg == "" {
-				khOrg = config.FromEnvOr(cfg, "KH_ORG", "")
+				khOrg = cfg.Org
 			}
 			if khProject == "" {
-				khProject = config.FromEnvOr(cfg, "KH_PROJECT", "")
+				khProject = cfg.Project
 			}
-			client.Endpoint = khEndpoint
-			client.Org = khOrg
-			client.Token = config.FromEnvOr(cfg, "KH_TOKEN", cfg.Token)
+
+			// Create a new client with resolved config
+			client := khclient.New(config.Config{
+				Endpoint:    khEndpoint,
+				Token:       cfg.Token,
+				Org:         khOrg,
+				Project:     cfg.Project,
+				Concurrency: cfg.Concurrency,
+			})
+
 			projectRef := project
 			if projectRef == "" {
 				projectRef = khProject

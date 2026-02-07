@@ -64,7 +64,7 @@ func newStatefilesListCmd(target *statefileTarget) *cobra.Command {
 		Use:   "ls",
 		Short: "List statefiles for a workspace",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -106,7 +106,7 @@ func newStatefilesLastCmd(target *statefileTarget) *cobra.Command {
 		Use:   "last",
 		Short: "Show the latest statefile for a workspace",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -146,7 +146,7 @@ func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -201,7 +201,7 @@ func newStatefilesPushCmd(target *statefileTarget) *cobra.Command {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("statefile content is empty"))
 			}
 
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -244,7 +244,7 @@ func newStatefilesDeleteCmd(target *statefileTarget) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -272,7 +272,7 @@ func newStatefilesDeleteAllCmd(target *statefileTarget) *cobra.Command {
 			if !force {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("refusing to delete all statefiles without --force"))
 			}
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()

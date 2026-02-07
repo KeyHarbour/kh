@@ -73,6 +73,33 @@ func Save(cfg Config) error {
 	return os.WriteFile(p, b, 0o600)
 }
 
+// LoadWithEnv loads config from disk and applies environment variable overrides
+func LoadWithEnv() (Config, error) {
+	cfg, err := Load()
+	if err != nil {
+		return cfg, err
+	}
+	// Apply environment variable overrides
+	if v := os.Getenv("KH_ENDPOINT"); v != "" {
+		cfg.Endpoint = v
+	}
+	if v := os.Getenv("KH_TOKEN"); v != "" {
+		cfg.Token = v
+	}
+	if v := os.Getenv("KH_ORG"); v != "" {
+		cfg.Org = v
+	}
+	if v := os.Getenv("KH_PROJECT"); v != "" {
+		cfg.Project = v
+	}
+	if v := os.Getenv("KH_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Concurrency = n
+		}
+	}
+	return cfg, nil
+}
+
 // Helpers with precedence: flag > env > config default
 func FromEnvOr(cfg Config, key string, def string) string {
 	if v := os.Getenv(key); v != "" {

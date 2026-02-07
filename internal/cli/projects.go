@@ -42,20 +42,33 @@ func newProjectsListCmd() *cobra.Command {
 
 func newProjectsShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show <project-uuid>",
+		Use:   "show [project-uuid]",
 		Short: "Show a project's details",
 		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return fmt.Errorf("projects show requires exactly one argument: <project-uuid>")
+			if len(args) > 1 {
+				return fmt.Errorf("projects show accepts at most one argument: <project-uuid>")
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
+
+			// Use argument or fall back to KH_PROJECT
+			projectRef := ""
+			if len(args) == 1 {
+				projectRef = args[0]
+			} else {
+				projectRef = cfg.Project
+			}
+
+			if projectRef == "" {
+				return fmt.Errorf("project uuid is required: provide as argument or set KH_PROJECT")
+			}
+
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			proj, err := resolveProjectRef(ctx, client, args[0])
+			proj, err := resolveProjectRef(ctx, client, projectRef)
 			if err != nil {
 				return err
 			}

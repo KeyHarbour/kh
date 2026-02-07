@@ -12,9 +12,9 @@ func newWhoamiCmd() *cobra.Command {
 		Use:   "whoami",
 		Short: "Show the current authenticated identity",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			if cfg.Token == "" {
-				return fmt.Errorf("not logged in: set token with kh login --token ...")
+				return fmt.Errorf("not logged in: set token with kh login --token ... or KH_TOKEN env var")
 			}
 			org := cfg.Org
 			if org == "" {

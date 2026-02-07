@@ -33,7 +33,7 @@ func newStateLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List states known by Key-Harbour",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -72,7 +72,7 @@ func newStateShowCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()

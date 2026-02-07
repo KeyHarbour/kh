@@ -259,15 +259,18 @@ func newInitProjectCmd() *cobra.Command {
 		Use:   "project",
 		Short: "Scaffold a minimal Terraform project configured for KeyHarbour backend",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			if endpoint == "" {
-				endpoint = config.FromEnvOr(cfg, "KH_ENDPOINT", "https://api.keyharbour.test")
+				endpoint = cfg.Endpoint
+				if endpoint == "" {
+					endpoint = "https://api.keyharbour.test"
+				}
 			}
 			if org == "" {
-				org = config.FromEnvOr(cfg, "KH_ORG", "")
+				org = cfg.Org
 			}
 			if khProj == "" {
-				khProj = config.FromEnvOr(cfg, "KH_PROJECT", "")
+				khProj = cfg.Project
 			}
 			// Defaults for TFC flags from environment when not provided
 			if tfcOrg == "" {

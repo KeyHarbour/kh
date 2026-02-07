@@ -55,7 +55,7 @@ func newExportCmd() *cobra.Command {
 				})
 			}
 
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 			defer cancel()

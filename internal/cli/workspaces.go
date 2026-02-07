@@ -43,7 +43,7 @@ func newWorkspacesListCmd(opts *workspaceCmdOpts) *cobra.Command {
 		Use:   "ls",
 		Short: "List workspaces for a project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)
 			if err != nil {
 				return err
@@ -86,7 +86,7 @@ func newWorkspacesShowCmd(opts *workspaceCmdOpts) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)
 			if err != nil {
 				return err

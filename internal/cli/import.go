@@ -45,9 +45,9 @@ func newImportCmd() *cobra.Command {
 		Use:   "tfstate",
 		Short: "Import Terraform state from backends",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, _ := config.LoadWithEnv()
 			if concurrency == 0 {
-				concurrency = config.FromEnvOrInt(cfg, "KH_CONCURRENCY", cfg.Concurrency)
+				concurrency = cfg.Concurrency
 			}
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
 
