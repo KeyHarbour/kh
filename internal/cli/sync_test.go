@@ -101,8 +101,8 @@ func TestSyncCmd_Local_Success(t *testing.T) {
 
 func TestSyncCmd_TFC_Success(t *testing.T) {
 	// 1. Mock TFC API
-	tfcOrg := "my-org"
-	tfcWorkspace := "my-ws"
+	tfcOrg := "myorg"
+	tfcWorkspace := "myws"
 	tfcWorkspaceID := "ws-12345"
 	stateContent := `{"version": 4, "terraform_version": "1.5.0", "serial": 5, "lineage": "xyz", "outputs": {}}`
 
