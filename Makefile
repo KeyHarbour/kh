@@ -1,4 +1,4 @@
-.PHONY: tidy build run test test-coverage coverage-report vet fmt clean install uninstall
+.PHONY: tidy build run test test-coverage coverage-report vet fmt clean install uninstall snapshot regression diagnostics
 
 BINARY := bin/kh
 PREFIX ?= /usr/local
@@ -56,6 +56,28 @@ release-local: build-cross
 	# run goreleaser in snapshot mode to produce dist/ (requires goreleaser installed)
 	goreleaser release --snapshot --rm-dist
 
+# ---------------------------------------------------------------------------
+# Integration tests (require KH_ENDPOINT and KH_TOKEN to be set)
+# KH_SNAPSHOT_DIR defaults to ./integration-tests/testdata/snapshots
+# ---------------------------------------------------------------------------
+INTEG_FLAGS := -tags integration -v -count=1 -timeout 10m
+SNAPSHOT_DIR ?= ./integration-tests/testdata/snapshots
+
+snapshot: build
+	KH_TEST_MODE=snapshot \
+	KH_SNAPSHOT_DIR=$(SNAPSHOT_DIR) \
+	go test $(INTEG_FLAGS) ./integration-tests/... -run TestSnapshot
+
+regression: build
+	KH_TEST_MODE=regression \
+	KH_SNAPSHOT_DIR=$(SNAPSHOT_DIR)/latest \
+	go test $(INTEG_FLAGS) ./integration-tests/... -run TestRegression
+
+diagnostics: build
+	KH_TEST_MODE=diagnostics \
+	go test $(INTEG_FLAGS) -timeout 3m ./integration-tests/... -run TestDiagnostics
+
+# ---------------------------------------------------------------------------
 # Install/uninstall the kh binary
 install: build
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)
