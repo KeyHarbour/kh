@@ -1,0 +1,80 @@
+name: Integration – Snapshot
+
+# Collect a snapshot of the live KeyHarbour backend BEFORE a deployment.
+# Upload the result as a workflow artifact so the regression job can compare
+# against it once the deployment is complete.
+#
+# Trigger manually, or chain it from a release/deploy workflow:
+#
+#   jobs:
+#     snapshot:
+#       uses: ./.github/workflows/integration-snapshot.yml
+#       secrets: inherit
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (e.g. staging, production)'
+        required: true
+        default: staging
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        type: string
+        default: staging
+    outputs:
+      snapshot_run_id:
+        description: 'Run ID that owns the snapshot artifact'
+        value: ${{ jobs.snapshot.outputs.run_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Collect pre-deploy snapshot
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    outputs:
+      run_id: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build kh binary
+        run: make build
+
+      - name: Collect snapshot
+        env:
+          KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+          KH_TOKEN: ${{ secrets.KH_TOKEN }}
+          KH_PROJECT: ${{ vars.KH_PROJECT }}
+          KH_ORG: ${{ vars.KH_ORG }}
+          KH_TEST_MODE: snapshot
+          KH_SNAPSHOT_DIR: ./integration-tests/testdata/snapshots
+        run: |
+          go test \
+            -tags integration \
+            ./integration-tests/... \
+            -run TestSnapshot \
+            -v \
+            -count=1 \
+            -timeout 5m
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kh-snapshot-${{ github.run_id }}
+          # Retain snapshots for 90 days so regression jobs can always find them.
+          retention-days: 90
+          path: integration-tests/testdata/snapshots/
+          if-no-files-found: error
