@@ -1,3 +1,10 @@
+## v0.8.1 (2026-02-24)
+
+### Bug Fixes
+* use GH_PAT in bump_version checkout to trigger release on tag push (af24e37)
+
+---
+
 ## v0.8.0 (2026-02-24)
 
 ### Features
