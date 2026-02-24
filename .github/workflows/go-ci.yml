@@ -16,6 +16,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Don't run on the automated version-bump commit from bump_version job.
+    if: "!(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]'))"
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +48,44 @@ jobs:
         with:
           name: kh-binary
           path: bin/kh
+
+  bump_version:
+    name: Bump Version & Tag
+    needs: build
+    # Only on direct pushes to main; skip tag pushes and automated bump commits.
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.bump.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and update changelog
+        id: bump
+        run: |
+          chmod +x scripts/bump-version.sh
+          scripts/bump-version.sh
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag, and push
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION CHANGELOG.md
+          git commit -m "chore: bump version to $VERSION [skip ci]"
+          git push origin main
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
 
   release:
     needs: build
