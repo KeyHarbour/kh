@@ -50,7 +50,9 @@ jobs:
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    # macOS runner required for codesign and notarytool (Xcode CLI tools).
+    # Cross-compilation for Linux and Windows still works with CGO_ENABLED=0.
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +64,45 @@ jobs:
           go-version: '1.22'
           cache: true
 
-      - name: Build release artifacts
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          make test
-          make coverage-report
+          # Create a short-lived keychain so the cert is never written to the
+          # default login keychain and is automatically cleaned up after the job.
+          KEYCHAIN_NAME="build-keychain"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_NAME" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm /tmp/certificate.p12
+
+          # Add the build keychain to the search list so codesign can find the cert.
+          security list-keychain -d user -s "$KEYCHAIN_NAME" login.keychain
+
+          # Allow codesign to access the key without a UI password prompt.
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          # Export the password so the cleanup step can delete the keychain.
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Prepare notarization API key
+        env:
+          NOTARIZE_KEY: ${{ secrets.NOTARIZE_KEY }}
+        run: |
+          echo "$NOTARIZE_KEY" | base64 --decode > /tmp/notarize-key.p8
+          echo "NOTARIZE_KEY_PATH=/tmp/notarize-key.p8" >> "$GITHUB_ENV"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -74,3 +111,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+          NOTARIZE_ISSUER_ID: ${{ secrets.NOTARIZE_ISSUER_ID }}
+          NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
+          NOTARIZE_KEY_PATH: ${{ env.NOTARIZE_KEY_PATH }}
+
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f /tmp/notarize-key.p8
+          security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
