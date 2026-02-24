@@ -51,6 +51,11 @@ Thumbs.db
 # Go specific
 bin/
 coverage/
+*.bak
+*.bak2
+
+# Local dev helper binaries (not part of the project)
+http-receiver
 
 tmp/
 .env
