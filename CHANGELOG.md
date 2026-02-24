@@ -1,3 +1,11 @@
+## v0.8.2 (2026-02-24)
+
+### Bug Fixes
+* format migrate_test.go (6d77478)
+* harden go-ci workflow for reliable bump-tag-release (18aa630)
+
+---
+
 ## v0.8.1 (2026-02-24)
 
 ### Bug Fixes
