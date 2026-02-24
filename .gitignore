@@ -89,3 +89,5 @@ terraform.tfvars.sample.json
 terraform.tfvars.template
 terraform.tfvars.template.json
 terraform.tfvars.local
+
+integration-tests/testdata/

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,8 +21,7 @@ func TestHTTPReaderAndWriter(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(last)
 		case http.MethodPut:
-			b := make([]byte, r.ContentLength)
-			_, _ = r.Body.Read(b)
+			b, _ := io.ReadAll(r.Body)
 			last = b
 			w.WriteHeader(http.StatusOK)
 		default:

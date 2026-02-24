@@ -61,7 +61,7 @@ release-local: build-cross
 # KH_SNAPSHOT_DIR defaults to ./integration-tests/testdata/snapshots
 # ---------------------------------------------------------------------------
 INTEG_FLAGS := -tags integration -v -count=1 -timeout 10m
-SNAPSHOT_DIR ?= ./integration-tests/testdata/snapshots
+SNAPSHOT_DIR ?= $(CURDIR)/integration-tests/testdata/snapshots
 
 snapshot: build
 	KH_TEST_MODE=snapshot \
