@@ -18,6 +18,17 @@ builds:
     ldflags:
       - -s -w
       - -X kh/pkg/version.Version={{.Version}}
+    hooks:
+      post:
+        # Sign and notarize darwin binaries. The script is a no-op for non-darwin
+        # targets and when not running on a macOS host.
+        - cmd: ./scripts/sign-and-notarize.sh {{ .Path }} {{ .Os }}
+          output: true
+          env:
+            - APPLE_DEVELOPER_IDENTITY={{ .Env.APPLE_DEVELOPER_IDENTITY }}
+            - NOTARIZE_ISSUER_ID={{ .Env.NOTARIZE_ISSUER_ID }}
+            - NOTARIZE_KEY_ID={{ .Env.NOTARIZE_KEY_ID }}
+            - NOTARIZE_KEY_PATH={{ .Env.NOTARIZE_KEY_PATH }}
 
 archives:
   - id: default
