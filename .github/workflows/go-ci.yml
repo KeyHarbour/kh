@@ -1,0 +1,220 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+# Serialize version bumps to avoid two concurrent bump_version jobs racing
+# on rapid pushes to main (second push would fail with a non-fast-forward error).
+# cancel-in-progress: false keeps the queued bump alive so every push eventually
+# gets a release.
+concurrency:
+  group: bump-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Skip the automated version-bump commit pushed by bump_version to avoid looping.
+    if: "!(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]'))"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build & Test
+        run: |
+          go version
+          make tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go.mod/go.sum are out of date — run 'go mod tidy' locally"
+            git diff go.mod go.sum
+            exit 1
+          fi
+          make vet
+          make fmt
+          if ! git diff --quiet; then
+            echo "Go files are not formatted — run 'go fmt ./...' locally"
+            git diff
+            exit 1
+          fi
+          make build
+          make test
+          make coverage-report
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/**
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kh-binary
+          path: bin/kh
+
+  bump_version:
+    name: Bump Version & Tag
+    needs: build
+    # Only on direct pushes to main; skip automated bump commits.
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      bumped: ${{ steps.bump.outputs.bumped }}
+      version: ${{ steps.bump.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # GH_PAT is used so that the commit/tag pushes are authenticated with
+          # a personal token. GITHUB_TOKEN pushes are blocked from triggering
+          # new workflow runs by GitHub (loop prevention), but here the release
+          # job runs in this same workflow run anyway — so the PAT is only
+          # needed for write access, not for re-triggering.
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Bump version and update changelog
+        id: bump
+        run: |
+          chmod +x scripts/bump-version.sh
+          scripts/bump-version.sh
+          git add VERSION CHANGELOG.md
+          # Only set outputs when there are actual staged changes.
+          if git diff --cached --quiet; then
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(cat VERSION | tr -d '[:space:]')
+            echo "bumped=true"    >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit, tag, and push
+        if: steps.bump.outputs.bumped == 'true'
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: bump version to $VERSION [skip ci]"
+          git push origin main
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+  release:
+    needs: [build, bump_version]
+    # Run in the same workflow run as bump_version — no second tag-triggered
+    # run needed. This sidesteps the GITHUB_TOKEN vs PAT pitfall entirely:
+    # even if the tag push doesn't re-trigger CI, the release still fires.
+    if: |
+      github.ref == 'refs/heads/main' &&
+      needs.bump_version.outputs.bumped == 'true'
+    # macOS runner required for codesign and notarytool (Xcode CLI tools).
+    # Cross-compilation for Linux and Windows still works with CGO_ENABLED=0.
+    runs-on: macos-latest
+
+    steps:
+      # Check out at the exact tag bump_version just pushed so GoReleaser
+      # sees HEAD at a tagged commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: v${{ needs.bump_version.outputs.version }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a short-lived keychain so the cert is never written to the
+          # default login keychain and is automatically cleaned up after the job.
+          KEYCHAIN_NAME="build-keychain"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          # Mask the generated password so it never appears in logs.
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_NAME" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          # Defer actual deletion to the cleanup step (always runs).
+          # Remove here too so the file isn't left around longer than needed.
+          rm -f /tmp/certificate.p12
+
+          # Add the build keychain to the search list so codesign can find the cert.
+          security list-keychain -d user -s "$KEYCHAIN_NAME" login.keychain
+
+          # Allow codesign to access the key without a UI password prompt.
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          # Export the keychain name/password so the cleanup step can delete it.
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Prepare notarization API key
+        env:
+          NOTARIZE_KEY: ${{ secrets.NOTARIZE_KEY }}
+        run: |
+          # Write to a path only the runner user can read.
+          install -m 600 /dev/null /tmp/notarize-key.p8
+          echo "$NOTARIZE_KEY" | base64 --decode > /tmp/notarize-key.p8
+          echo "NOTARIZE_KEY_PATH=/tmp/notarize-key.p8" >> "$GITHUB_ENV"
+
+      - name: Make sign-and-notarize script executable
+        run: chmod +x scripts/sign-and-notarize.sh
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tell GoReleaser which tag to release. Without this it would inspect
+          # GITHUB_REF (refs/heads/main) and refuse to run outside a tag event.
+          GORELEASER_CURRENT_TAG: v${{ needs.bump_version.outputs.version }}
+          # GH_PAT is forwarded so GoReleaser can push the updated Homebrew
+          # formula to the KeyHarbour/homebrew-tap repository.
+          GH_PAT: ${{ secrets.GH_PAT }}
+          APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+          NOTARIZE_ISSUER_ID: ${{ secrets.NOTARIZE_ISSUER_ID }}
+          NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
+          NOTARIZE_KEY_PATH: ${{ env.NOTARIZE_KEY_PATH }}
+
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f /tmp/notarize-key.p8
+          rm -f /tmp/certificate.p12
+          security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
