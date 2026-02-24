@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"kh/internal/config"
@@ -27,7 +28,7 @@ func newKVCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
-	cmd.PersistentFlags().StringVar(&opts.env, "env", "", "Environment name")
+	cmd.PersistentFlags().StringVar(&opts.env, "env", os.Getenv("KH_ENVIRONMENT"), "Environment name (or KH_ENVIRONMENT)")
 
 	cmd.AddCommand(newKVListCmd(opts))
 	cmd.AddCommand(newKVGetCmd(opts))
