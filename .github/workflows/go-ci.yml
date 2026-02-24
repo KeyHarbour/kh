@@ -16,8 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Don't run on the automated version-bump commit from bump_version job.
-    if: "!(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]'))"
+    # Skip the automated version-bump commit on branches, but always run on tags
+    # so the release job can trigger after bump_version pushes a v* tag.
+    if: "!(startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[skip ci]'))"
 
     steps:
       - uses: actions/checkout@v4
