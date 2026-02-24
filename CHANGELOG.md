@@ -1,3 +1,10 @@
+## v0.8.6 (2026-02-24)
+
+### Maintenance
+* initial public release of kh v0.8.5 (c2b4d98)
+
+---
+
 ## v0.8.5 (2026-02-24)
 
 ---
