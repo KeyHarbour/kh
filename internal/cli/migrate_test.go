@@ -157,7 +157,7 @@ func TestBackupBackendConfig(t *testing.T) {
 	
 	// Verify backup file exists
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		t.Errorf("backup file not created at %s", backupPath)
+		t.Fatalf("backup file not created at %s", backupPath)
 	}
 	
 	// Verify backup content matches original
@@ -222,7 +222,10 @@ func TestParseBackendBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseBackendBlock(tt.input)
-			
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("result has %d keys, want %d: got %v", len(result), len(tt.expected), result)
+			}
 			for key, expectedValue := range tt.expected {
 				if result[key] != expectedValue {
 					t.Errorf("key %q: got %q, want %q", key, result[key], expectedValue)
