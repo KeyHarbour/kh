@@ -32,10 +32,12 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
@@ -55,4 +57,4 @@ release:
   # We'll use Bitbucket uploads; keep GitHub section blank unless you publish there
 
 snapshot:
-  name_template: "snapshot-{{ .Timestamp }}"
+  version_template: "snapshot-{{ .Timestamp }}"
