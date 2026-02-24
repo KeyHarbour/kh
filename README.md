@@ -335,6 +335,8 @@ For detailed logging of API calls and troubleshooting:
 kh <command> --debug
 # or
 export KH_DEBUG=1
+
+
 ```
 
 ---

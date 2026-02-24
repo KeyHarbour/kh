@@ -47,6 +47,22 @@ archives:
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 
+brews:
+  - name: kh
+    # Requires a repo at github.com/KeyHarbour/homebrew-tap to exist before
+    # the first release. GH_PAT must have `repo` write scope on that repo.
+    repository:
+      owner: KeyHarbour
+      name: homebrew-tap
+      token: "{{ .Env.GH_PAT }}"
+    homepage: "https://keyharbour.ca"
+    description: "Official CLI for KeyHarbour — self-hosted Terraform state backend"
+    license: "MIT"
+    install: |
+      bin.install "kh"
+    test: |
+      system "#{bin}/kh", "--version"
+
 changelog:
   use: git
 
