@@ -1,3 +1,10 @@
+## v0.8.8 (2026-02-24)
+
+### Maintenance
+* remove Homebrew formula update from private repo (d1660b8)
+
+---
+
 ## v0.8.7 (2026-02-24)
 
 ### Maintenance
