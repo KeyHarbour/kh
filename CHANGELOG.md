@@ -1,3 +1,10 @@
+## v0.8.7 (2026-02-24)
+
+### Maintenance
+* update .gitignore to cover backup files and local binaries (f11e4a0)
+
+---
+
 ## v0.8.6 (2026-02-24)
 
 ### Bug Fixes
