@@ -1,3 +1,10 @@
+## v0.8.4 (2026-02-24)
+
+### Maintenance
+* add Homebrew tap automation via GoReleaser (0f97d06)
+
+---
+
 ## v0.8.3 (2026-02-24)
 
 ### Bug Fixes
