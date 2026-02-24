@@ -204,6 +204,9 @@ jobs:
           # Tell GoReleaser which tag to release. Without this it would inspect
           # GITHUB_REF (refs/heads/main) and refuse to run outside a tag event.
           GORELEASER_CURRENT_TAG: v${{ needs.bump_version.outputs.version }}
+          # GH_PAT is forwarded so GoReleaser can push the updated Homebrew
+          # formula to the KeyHarbour/homebrew-tap repository.
+          GH_PAT: ${{ secrets.GH_PAT }}
           APPLE_DEVELOPER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
           NOTARIZE_ISSUER_ID: ${{ secrets.NOTARIZE_ISSUER_ID }}
           NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
