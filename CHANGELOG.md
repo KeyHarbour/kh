@@ -1,3 +1,10 @@
+## v0.8.3 (2026-02-24)
+
+### Bug Fixes
+* run release in same workflow run as bump_version (2e61dba)
+
+---
+
 ## v0.8.2 (2026-02-24)
 
 ### Bug Fixes
