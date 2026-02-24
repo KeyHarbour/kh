@@ -71,6 +71,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Must use GH_PAT (not GITHUB_TOKEN) so the tag push triggers
+          # a new workflow run for the release job.
+          token: ${{ secrets.GH_PAT }}
 
       - name: Bump version and update changelog
         id: bump
