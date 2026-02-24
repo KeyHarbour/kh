@@ -51,10 +51,8 @@ changelog:
   use: git
 
 release:
-  github:
-    owner: ""
-    name: ""
-  # We'll use Bitbucket uploads; keep GitHub section blank unless you publish there
+  # owner/name are intentionally omitted — GoReleaser auto-detects the
+  # repository from the git remote, which works correctly in GitHub Actions.
 
 snapshot:
   version_template: "snapshot-{{ .Timestamp }}"
