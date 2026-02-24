@@ -14,15 +14,29 @@ set -euo pipefail
 VERSION_FILE="VERSION"
 CHANGELOG_FILE="CHANGELOG.md"
 
-# Read current version
-current_version=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.1.0")
-IFS='.' read -r major minor patch <<< "$current_version"
-
 # Fetch all tags so git log range works on a fresh CI checkout
 git fetch --tags --force 2>/dev/null || true
 
-range="v${current_version}..HEAD"
-echo "Scanning commits in range: $range"
+# Use the latest git tag as the source of truth for the current version.
+# This is more reliable than the VERSION file because the tag always exists
+# in git history, whereas VERSION might be ahead/behind the actual tags.
+last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+if [ -n "$last_tag" ]; then
+  # Strip leading 'v' to get a plain semver string (e.g. v0.7.1 → 0.7.1)
+  current_version="${last_tag#v}"
+  range="${last_tag}..HEAD"
+else
+  # No tags yet — fall back to VERSION file; scan all commits
+  current_version=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.1.0")
+  range="HEAD"
+fi
+
+IFS='.' read -r major minor patch <<< "$current_version"
+
+echo "Last tag   : ${last_tag:-"(none)"}"
+echo "Current    : v${current_version}"
+echo "Scanning   : ${range}"
 
 mapfile -t raw_commits < <(git log "$range" --pretty=format:"%s (%h)" 2>/dev/null || true)
 
