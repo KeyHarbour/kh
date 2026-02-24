@@ -13,6 +13,14 @@ on:
 permissions:
   contents: write
 
+# Serialize version bumps to avoid two concurrent bump_version jobs racing
+# on rapid pushes to main (second push would fail with a non-fast-forward error).
+# cancel-in-progress: false keeps the queued bump alive so every push eventually
+# gets a release.
+concurrency:
+  group: bump-version-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,8 +43,18 @@ jobs:
         run: |
           go version
           make tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go.mod/go.sum are out of date — run 'go mod tidy' locally"
+            git diff go.mod go.sum
+            exit 1
+          fi
           make vet
           make fmt
+          if ! git diff --quiet; then
+            echo "Go files are not formatted — run 'go fmt ./...' locally"
+            git diff
+            exit 1
+          fi
           make build
           make test
           make coverage-report
@@ -64,9 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      new_version: ${{ steps.bump.outputs.version }}
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,8 +95,6 @@ jobs:
         run: |
           chmod +x scripts/bump-version.sh
           scripts/bump-version.sh
-          VERSION=$(cat VERSION | tr -d '[:space:]')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           git add VERSION CHANGELOG.md
           # Check if anything was actually staged; set output flag accordingly.
           if git diff --cached --quiet; then
@@ -171,7 +184,7 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
