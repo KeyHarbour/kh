@@ -257,8 +257,8 @@ kh kv delete MY_KEY --project <uuid> --workspace <uuid> --force
 
 **Notes:**
 - `--project` and `--workspace` accept a UUID or name; `KH_PROJECT` and `KH_WORKSPACE` env vars are also respected.
+- `--env` defaults to `KH_ENVIRONMENT` if set. It is required when creating a key; it is optional (filter) for listing.
 - Private values are masked as `***` in `ls` and `get` output unless `--reveal` is passed.
-- `--env` is required when creating a key; it is optional (filter) for listing.
 - All commands support `-o json` for machine-readable output.
 
 ### Integrity (`verify`)
@@ -282,6 +282,7 @@ kh verify <state-id> --full
 | `KH_PROJECT` | Default Project UUID |
 | `KH_ORG` | Default Organization Slug |
 | `KH_WORKSPACE` | Default Workspace UUID or name |
+| `KH_ENVIRONMENT` | Default environment name for `kv` commands |
 | `KH_CONCURRENCY` | Default concurrency for parallel operations (default: 4) |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
 
