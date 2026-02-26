@@ -230,6 +230,37 @@ kh workspaces ls --project <uuid>
 kh workspaces create --project <uuid> --name "production-db"
 ```
 
+### Key/Value Management (`kv`)
+
+Store and retrieve configuration values scoped to a workspace and environment.
+
+```zsh
+# List all key/value pairs in a workspace
+kh kv ls --project <uuid> --workspace <uuid> [--env production]
+
+# Get a specific key (--reveal to show private values in plain text)
+kh kv get MY_KEY --project <uuid> --workspace <uuid>
+kh kv get MY_API_TOKEN --project <uuid> --workspace <uuid> --reveal
+
+# Create a new key/value (--env is required)
+kh kv set MY_KEY my-value --project <uuid> --workspace <uuid> --env production
+kh kv set MY_SECRET s3cr3t --project <uuid> --workspace <uuid> --env production --private
+kh kv set MY_TEMP value  --project <uuid> --workspace <uuid> --env staging --expires-at 2026-12-31T00:00:00Z
+
+# Update an existing key
+kh kv update MY_KEY --value new-value --project <uuid> --workspace <uuid>
+kh kv update MY_KEY --value new-value --private false --project <uuid> --workspace <uuid>
+
+# Delete a key (--force required to confirm)
+kh kv delete MY_KEY --project <uuid> --workspace <uuid> --force
+```
+
+**Notes:**
+- `--project` and `--workspace` accept a UUID or name; `KH_PROJECT` and `KH_WORKSPACE` env vars are also respected.
+- `--env` defaults to `KH_ENVIRONMENT` if set. It is required when creating a key; it is optional (filter) for listing.
+- Private values are masked as `***` in `ls` and `get` output unless `--reveal` is passed.
+- All commands support `-o json` for machine-readable output.
+
 ### Integrity (`verify`)
 
 Run deep integrity checks on stored state files.
@@ -250,6 +281,8 @@ kh verify <state-id> --full
 | `KH_ENDPOINT` | KeyHarbour API URL (e.g., `https://api.keyharbour.ca`) |
 | `KH_PROJECT` | Default Project UUID |
 | `KH_ORG` | Default Organization Slug |
+| `KH_WORKSPACE` | Default Workspace UUID or name |
+| `KH_ENVIRONMENT` | Default environment name for `kv` commands |
 | `KH_CONCURRENCY` | Default concurrency for parallel operations (default: 4) |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
 

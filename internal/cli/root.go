@@ -64,6 +64,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newProjectsCmd())
 	cmd.AddCommand(newWorkspacesCmd())
 	cmd.AddCommand(newStatefilesCmd())
+	cmd.AddCommand(newKVCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newMigrateCmd())
 	cmd.AddCommand(newVerifyCmd())
