@@ -41,7 +41,7 @@ func (r *KeyHarbourReader) List(ctx context.Context) ([]Object, error) {
 
 	// If specific statefile ID is provided, return just that one
 	if r.statefileID != "" {
-		sf, err := r.client.GetStatefile(ctx, projectUUID, workspaceUUID, r.statefileID)
+		sf, err := r.client.GetStatefile(ctx, r.statefileID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get statefile %s: %w", r.statefileID, err)
 		}
@@ -50,12 +50,12 @@ func (r *KeyHarbourReader) List(ctx context.Context) ([]Object, error) {
 			Size:      int64(len(sf.Content)),
 			Checksum:  "", // Statefile doesn't have checksum
 			Workspace: workspaceName,
-			URL:       fmt.Sprintf("/projects/%s/workspaces/%s/statefiles/%s", projectUUID, workspaceUUID, sf.UUID),
+			URL:       fmt.Sprintf("/workspaces/%s/statefiles/%s", workspaceUUID, sf.UUID),
 		}}, nil
 	}
 
 	// Otherwise list statefiles
-	statefiles, err := r.client.ListStatefiles(ctx, projectUUID, workspaceUUID, r.env)
+	statefiles, err := r.client.ListStatefiles(ctx, workspaceUUID, r.env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list statefiles: %w", err)
 	}
@@ -66,7 +66,7 @@ func (r *KeyHarbourReader) List(ctx context.Context) ([]Object, error) {
 			Key:       sf.UUID,
 			Size:      int64(len(sf.Content)),
 			Workspace: workspaceName,
-			URL:       fmt.Sprintf("/projects/%s/workspaces/%s/statefiles/%s", projectUUID, workspaceUUID, sf.UUID),
+			URL:       fmt.Sprintf("/workspaces/%s/statefiles/%s", workspaceUUID, sf.UUID),
 		})
 	}
 
@@ -86,7 +86,7 @@ func (r *KeyHarbourReader) Get(ctx context.Context, key string) ([]byte, Object,
 	}
 
 	// Get statefile by UUID (key)
-	sf, err := r.client.GetStatefile(ctx, projectUUID, workspaceUUID, key)
+	sf, err := r.client.GetStatefile(ctx, key)
 	if err != nil {
 		return nil, Object{}, fmt.Errorf("failed to get statefile %s: %w", key, err)
 	}
@@ -95,7 +95,7 @@ func (r *KeyHarbourReader) Get(ctx context.Context, key string) ([]byte, Object,
 		Key:       key,
 		Size:      int64(len(sf.Content)),
 		Workspace: workspaceName,
-		URL:       fmt.Sprintf("/projects/%s/workspaces/%s/statefiles/%s", projectUUID, workspaceUUID, key),
+		URL:       fmt.Sprintf("/workspaces/%s/statefiles/%s", workspaceUUID, key),
 	}
 
 	return []byte(sf.Content), obj, nil
@@ -141,16 +141,14 @@ type KeyHarbourWriter struct {
 	client          *khclient.Client
 	projectUUID     string
 	workspace       string
-	env             string
 	createWorkspace bool
 }
 
-func NewKeyHarbourWriter(client *khclient.Client, projectUUID, workspace, env string, createWorkspace bool) *KeyHarbourWriter {
+func NewKeyHarbourWriter(client *khclient.Client, projectUUID, workspace string, createWorkspace bool) *KeyHarbourWriter {
 	return &KeyHarbourWriter{
 		client:          client,
 		projectUUID:     projectUUID,
 		workspace:       workspace,
-		env:             env,
 		createWorkspace: createWorkspace,
 	}
 }
@@ -165,20 +163,8 @@ func (w *KeyHarbourWriter) Put(ctx context.Context, key string, data []byte, ove
 		return Object{}, err
 	}
 
-	// Determine environment
-	envTag := w.env
-	if envTag == "" {
-		// Try to get project environments
-		proj, err := w.client.GetProject(ctx, w.projectUUID)
-		if err == nil && len(proj.Environments) > 0 {
-			envTag = proj.Environments[0]
-		} else {
-			envTag = "default"
-		}
-	}
-
 	// Create statefile
-	_, err = w.client.CreateStatefile(ctx, w.projectUUID, ws.UUID, envTag, khclient.CreateStatefileRequest{
+	_, err = w.client.CreateStatefile(ctx, ws.UUID, khclient.CreateStatefileRequest{
 		Content: string(data),
 	})
 	if err != nil {
@@ -189,7 +175,7 @@ func (w *KeyHarbourWriter) Put(ctx context.Context, key string, data []byte, ove
 		Key:       workspaceName,
 		Size:      int64(len(data)),
 		Workspace: workspaceName,
-		URL:       fmt.Sprintf("/projects/%s/workspaces/%s/statefiles", w.projectUUID, ws.UUID),
+		URL:       fmt.Sprintf("/workspaces/%s/statefiles", ws.UUID),
 	}, nil
 }
 

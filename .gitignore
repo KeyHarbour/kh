@@ -94,5 +94,5 @@ terraform.tfvars.sample.json
 terraform.tfvars.template
 terraform.tfvars.template.json
 terraform.tfvars.local
-
+.claude
 integration-tests/testdata/

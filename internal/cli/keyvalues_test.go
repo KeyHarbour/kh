@@ -13,7 +13,7 @@ import (
 )
 
 // newKVTestServer starts a test server pre-wired with project and workspace resolution
-// endpoints and a custom handler for /v1/projects/proj-uuid/workspaces/ws-uuid/keyvalues...
+// endpoints plus V2 key/value routes.
 func newKVTestServer(t *testing.T, kvHandler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	l, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -23,23 +23,24 @@ func newKVTestServer(t *testing.T, kvHandler http.HandlerFunc) *httptest.Server 
 	mux := http.NewServeMux()
 
 	// project resolution
-	mux.HandleFunc("/v1/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"uuid": "proj-uuid", "name": "my-project"})
 	})
 	// workspace resolution (list, for name-based lookup)
-	mux.HandleFunc("/v1/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]map[string]any{{"uuid": "ws-uuid", "name": "my-workspace"}})
 	})
 	// workspace detail
-	mux.HandleFunc("/v1/projects/proj-uuid/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"uuid": "ws-uuid", "name": "my-workspace"})
 	})
-	// kv endpoints
-	mux.HandleFunc("/v1/projects/proj-uuid/workspaces/ws-uuid/keyvalues", kvHandler)
-	mux.HandleFunc("/v1/projects/proj-uuid/workspaces/ws-uuid/keyvalues/", kvHandler)
+	// kv collection endpoint (ls, set)
+	mux.HandleFunc("/workspaces/ws-uuid/keyvalues", kvHandler)
+	// kv individual key endpoint (get, update, delete)
+	mux.HandleFunc("/keyvalues/", kvHandler)
 
 	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
 	srv.Start()
@@ -118,7 +119,7 @@ func TestKVGet_MasksPrivateByDefault(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"value": "s3cr3t", "expires_at": nil, "private": true})
 	})
 
-	out, err := runKVCmd(t, srv, "get", "MY_KEY", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "get", "MY_KEY")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestKVGet_RevealFlag(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"value": "s3cr3t", "expires_at": nil, "private": true})
 	})
 
-	out, err := runKVCmd(t, srv, "get", "MY_KEY", "--project", "proj-uuid", "--workspace", "ws-uuid", "--reveal")
+	out, err := runKVCmd(t, srv, "get", "MY_KEY", "--reveal")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -151,15 +152,12 @@ func TestKVSet_SendsCorrectPayload(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if got := r.URL.Query().Get("environment"); got != "production" {
-			t.Fatalf("expected environment=production, got %q", got)
-		}
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	})
 
-	_, err := runKVCmd(t, srv, "set", "NEW_KEY", "new-value", "--project", "proj-uuid", "--workspace", "ws-uuid", "--env", "production")
+	_, err := runKVCmd(t, srv, "set", "NEW_KEY", "new-value", "--project", "proj-uuid", "--workspace", "ws-uuid")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -168,17 +166,6 @@ func TestKVSet_SendsCorrectPayload(t *testing.T) {
 	}
 	if !strings.Contains(string(bodyBytes), `"value":"new-value"`) {
 		t.Errorf("expected value in body, got: %s", bodyBytes)
-	}
-}
-
-func TestKVSet_RequiresEnv(t *testing.T) {
-	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("server should not be called")
-	})
-
-	_, err := runKVCmd(t, srv, "set", "KEY", "val", "--project", "proj-uuid", "--workspace", "ws-uuid")
-	if err == nil {
-		t.Fatal("expected error when --env is missing")
 	}
 }
 
@@ -192,7 +179,7 @@ func TestKVDelete_RequiresForce(t *testing.T) {
 	})
 
 	// Without --force, should not call DELETE
-	_, _ = runKVCmd(t, srv, "delete", "MY_KEY", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	_, _ = runKVCmd(t, srv, "delete", "MY_KEY")
 	if deleteCalled {
 		t.Fatal("DELETE should not be called without --force")
 	}
@@ -207,7 +194,7 @@ func TestKVDelete_WithForce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	_, err := runKVCmd(t, srv, "delete", "MY_KEY", "--project", "proj-uuid", "--workspace", "ws-uuid", "--force")
+	_, err := runKVCmd(t, srv, "delete", "MY_KEY", "--force")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}

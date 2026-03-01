@@ -12,22 +12,18 @@ import (
 )
 
 func TestListKeyValues(t *testing.T) {
-	exp := "prod"
 	var called bool
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/keyvalues" {
+		if r.URL.Path != "/workspaces/ws/keyvalues" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if got := r.URL.Query().Get("environment"); got != exp {
-			t.Fatalf("expected environment %q, got %q", exp, got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `[{"key":"FOO","value":"bar","expires_at":null,"private":false},{"key":"SECRET","value":"s3cr3t","expires_at":null,"private":true}]`)
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	items, err := c.ListKeyValues(context.Background(), "proj", "ws", exp)
+	items, err := c.ListKeyValues(context.Background(), "ws")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -45,28 +41,9 @@ func TestListKeyValues(t *testing.T) {
 	}
 }
 
-func TestListKeyValues_NoEnv(t *testing.T) {
-	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("environment"); got != "" {
-			t.Fatalf("expected no environment query, got %q", got)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `[]`)
-	})
-
-	c := New(config.Config{Endpoint: srv.URL})
-	items, err := c.ListKeyValues(context.Background(), "proj", "ws", "")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if len(items) != 0 {
-		t.Fatalf("expected empty list, got %d", len(items))
-	}
-}
-
 func TestGetKeyValue(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/keyvalues/MY_KEY" {
+		if r.URL.Path != "/keyvalues/MY_KEY" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -74,7 +51,7 @@ func TestGetKeyValue(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	kv, err := c.GetKeyValue(context.Background(), "proj", "ws", "MY_KEY")
+	kv, err := c.GetKeyValue(context.Background(), "MY_KEY")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -91,7 +68,7 @@ func TestGetKeyValue_RequiresKey(t *testing.T) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	_, err := c.GetKeyValue(context.Background(), "proj", "ws", "")
+	_, err := c.GetKeyValue(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for empty key")
 	}
@@ -103,8 +80,8 @@ func TestCreateKeyValue(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if got := r.URL.Query().Get("environment"); got != "staging" {
-			t.Fatalf("expected environment staging, got %q", got)
+		if r.URL.Path != "/workspaces/ws/keyvalues" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var err error
 		bodyBytes, err = io.ReadAll(r.Body)
@@ -117,7 +94,7 @@ func TestCreateKeyValue(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.CreateKeyValue(context.Background(), "proj", "ws", "staging", CreateKeyValueRequest{
+	err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
 		Key:   "NEW_KEY",
 		Value: "new-value",
 	})
@@ -129,24 +106,13 @@ func TestCreateKeyValue(t *testing.T) {
 	}
 }
 
-func TestCreateKeyValue_RequiresEnvironment(t *testing.T) {
-	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("server should not be called")
-	})
-	c := New(config.Config{Endpoint: srv.URL})
-	err := c.CreateKeyValue(context.Background(), "proj", "ws", "", CreateKeyValueRequest{Key: "K", Value: "V"})
-	if err == nil {
-		t.Fatal("expected error for missing environment")
-	}
-}
-
 func TestUpdateKeyValue(t *testing.T) {
 	var bodyBytes []byte
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
 		}
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/keyvalues/MY_KEY" {
+		if r.URL.Path != "/keyvalues/MY_KEY" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var err error
@@ -160,7 +126,7 @@ func TestUpdateKeyValue(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.UpdateKeyValue(context.Background(), "proj", "ws", "MY_KEY", UpdateKeyValueRequest{Value: "updated"})
+	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Value: "updated"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -180,14 +146,14 @@ func TestDeleteKeyValue(t *testing.T) {
 		if r.Method != http.MethodDelete {
 			t.Fatalf("expected DELETE, got %s", r.Method)
 		}
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/keyvalues/MY_KEY" {
+		if r.URL.Path != "/keyvalues/MY_KEY" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.DeleteKeyValue(context.Background(), "proj", "ws", "MY_KEY"); err != nil {
+	if err := c.DeleteKeyValue(context.Background(), "MY_KEY"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if hits != 1 {
@@ -200,23 +166,7 @@ func TestDeleteKeyValue_RequiresKey(t *testing.T) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.DeleteKeyValue(context.Background(), "proj", "ws", ""); err == nil {
+	if err := c.DeleteKeyValue(context.Background(), ""); err == nil {
 		t.Fatal("expected error for empty key")
-	}
-}
-
-func TestKVPath_RequiresProjectAndWorkspace(t *testing.T) {
-	tests := []struct {
-		project   string
-		workspace string
-	}{
-		{"", "ws"},
-		{"proj", ""},
-	}
-	for _, tt := range tests {
-		_, err := kvPath(tt.project, tt.workspace, "")
-		if err == nil {
-			t.Errorf("expected error for project=%q workspace=%q", tt.project, tt.workspace)
-		}
 	}
 }

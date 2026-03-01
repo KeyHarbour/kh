@@ -58,7 +58,7 @@ func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUU
 		return khclient.Workspace{}, fmt.Errorf("workspace reference is required")
 	}
 	if looksLikeUUID(ref) {
-		return client.GetWorkspace(ctx, projectUUID, ref)
+		return client.GetWorkspace(ctx, ref)
 	}
 	workspaces, err := client.ListWorkspaces(ctx, projectUUID)
 	if err != nil {

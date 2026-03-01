@@ -11,7 +11,7 @@ import (
 
 func TestGetProject(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/projects/p-1" {
+		if r.URL.Path != "/projects/p-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -31,7 +31,7 @@ func TestGetProject(t *testing.T) {
 func TestGetWorkspace(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/projects/p-1/workspaces/w-1":
+		case "/workspaces/w-1":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(Workspace{Name: "workspace-one"})
 		default:
@@ -40,7 +40,7 @@ func TestGetWorkspace(t *testing.T) {
 	})
 
 	client := New(config.Config{Endpoint: srv.URL})
-	ws, err := client.GetWorkspace(context.Background(), "p-1", "w-1")
+	ws, err := client.GetWorkspace(context.Background(), "w-1")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

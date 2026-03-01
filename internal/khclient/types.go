@@ -35,7 +35,7 @@ type Project struct {
 	UUID         string   `json:"uuid"`
 	Name         string   `json:"name"`
 	Description  string   `json:"description,omitempty"`
-	Environments []string `json:"environments,omitempty"`
+	Environments []string `json:"environment_names,omitempty"`
 }
 
 type Workspace struct {

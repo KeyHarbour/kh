@@ -9,9 +9,8 @@ import (
 
 // CreateWorkspaceRequest represents the request body for creating a workspace
 type CreateWorkspaceRequest struct {
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	EnvironmentID *int   `json:"environment_id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // CreateWorkspaceResponse represents the response from creating a workspace
@@ -24,7 +23,7 @@ func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, e
 	if projectUUID == "" {
 		return Project{}, APIError{StatusCode: http.StatusBadRequest, Message: "project uuid is required"}
 	}
-	resp, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectUUID), nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/projects/"+url.PathEscape(projectUUID), nil, nil, nil)
 	if err != nil {
 		return Project{}, err
 	}
@@ -46,7 +45,7 @@ func (c *Client) ListWorkspaces(ctx context.Context, projectUUID string) ([]Work
 	if projectUUID == "" {
 		return nil, APIError{StatusCode: http.StatusBadRequest, Message: "project uuid is required"}
 	}
-	resp, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectUUID)+"/workspaces", nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/projects/"+url.PathEscape(projectUUID)+"/workspaces", nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +60,11 @@ func (c *Client) ListWorkspaces(ctx context.Context, projectUUID string) ([]Work
 	return out, nil
 }
 
-func (c *Client) GetWorkspace(ctx context.Context, projectUUID, workspaceUUID string) (Workspace, error) {
-	if projectUUID == "" || workspaceUUID == "" {
-		return Workspace{}, APIError{StatusCode: http.StatusBadRequest, Message: "project and workspace uuid are required"}
+func (c *Client) GetWorkspace(ctx context.Context, workspaceUUID string) (Workspace, error) {
+	if workspaceUUID == "" {
+		return Workspace{}, APIError{StatusCode: http.StatusBadRequest, Message: "workspace uuid is required"}
 	}
-	resp, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectUUID)+"/workspaces/"+url.PathEscape(workspaceUUID), nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/workspaces/"+url.PathEscape(workspaceUUID), nil, nil, nil)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -95,7 +94,10 @@ func (c *Client) CreateWorkspace(ctx context.Context, projectUUID string, req Cr
 	if !isAlphanumeric(req.Name) {
 		return Workspace{}, APIError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf("workspace name %q must contain only letters and numbers (no hyphens or special characters)", req.Name)}
 	}
-	resp, err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectUUID)+"/workspaces", nil, req, nil)
+	body := struct {
+		Workspace CreateWorkspaceRequest `json:"workspace"`
+	}{Workspace: req}
+	resp, err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectUUID)+"/workspaces", nil, body, nil)
 	if err != nil {
 		return Workspace{}, err
 	}

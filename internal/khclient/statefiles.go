@@ -11,8 +11,8 @@ type CreateStatefileRequest struct {
 	Content string `json:"content"`
 }
 
-func (c *Client) ListStatefiles(ctx context.Context, projectUUID, workspaceUUID, environment string) ([]Statefile, error) {
-	path, err := statefilesPath(projectUUID, workspaceUUID, "")
+func (c *Client) ListStatefiles(ctx context.Context, workspaceUUID, environment string) ([]Statefile, error) {
+	path, err := statefilesPath(workspaceUUID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -38,16 +38,12 @@ func (c *Client) ListStatefiles(ctx context.Context, projectUUID, workspaceUUID,
 	return out, nil
 }
 
-func (c *Client) GetLastStatefile(ctx context.Context, projectUUID, workspaceUUID, environment string) (Statefile, error) {
-	path, err := statefilesPath(projectUUID, workspaceUUID, "last")
+func (c *Client) GetLastStatefile(ctx context.Context, workspaceUUID string) (Statefile, error) {
+	path, err := statefilesPath(workspaceUUID, "last")
 	if err != nil {
 		return Statefile{}, err
 	}
-	q := url.Values{}
-	if environment != "" {
-		q.Set("environment", environment)
-	}
-	resp, err := c.do(ctx, http.MethodGet, path, q, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, path, nil, nil, nil)
 	if err != nil {
 		return Statefile{}, err
 	}
@@ -62,15 +58,11 @@ func (c *Client) GetLastStatefile(ctx context.Context, projectUUID, workspaceUUI
 	return out, nil
 }
 
-func (c *Client) GetStatefile(ctx context.Context, projectUUID, workspaceUUID, uuid string) (Statefile, error) {
+func (c *Client) GetStatefile(ctx context.Context, uuid string) (Statefile, error) {
 	if uuid == "" {
 		return Statefile{}, APIError{StatusCode: http.StatusBadRequest, Message: "statefile uuid is required"}
 	}
-	path, err := statefilesPath(projectUUID, workspaceUUID, uuid)
-	if err != nil {
-		return Statefile{}, err
-	}
-	resp, err := c.do(ctx, http.MethodGet, path, nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/statefiles/"+url.PathEscape(uuid), nil, nil, nil)
 	if err != nil {
 		return Statefile{}, err
 	}
@@ -85,16 +77,12 @@ func (c *Client) GetStatefile(ctx context.Context, projectUUID, workspaceUUID, u
 	return out, nil
 }
 
-func (c *Client) CreateStatefile(ctx context.Context, projectUUID, workspaceUUID, environment string, body CreateStatefileRequest) (StatefileCreatedResponse, error) {
-	path, err := statefilesPath(projectUUID, workspaceUUID, "")
+func (c *Client) CreateStatefile(ctx context.Context, workspaceUUID string, body CreateStatefileRequest) (StatefileCreatedResponse, error) {
+	path, err := statefilesPath(workspaceUUID, "")
 	if err != nil {
 		return StatefileCreatedResponse{}, err
 	}
-	q := url.Values{}
-	if environment != "" {
-		q.Set("environment", environment)
-	}
-	resp, err := c.do(ctx, http.MethodPost, path, q, body, nil)
+	resp, err := c.do(ctx, http.MethodPost, path, nil, body, nil)
 	if err != nil {
 		return StatefileCreatedResponse{}, err
 	}
@@ -109,8 +97,8 @@ func (c *Client) CreateStatefile(ctx context.Context, projectUUID, workspaceUUID
 	return out, nil
 }
 
-func (c *Client) DeleteStatefiles(ctx context.Context, projectUUID, workspaceUUID string) error {
-	path, err := statefilesPath(projectUUID, workspaceUUID, "")
+func (c *Client) DeleteStatefiles(ctx context.Context, workspaceUUID string) error {
+	path, err := statefilesPath(workspaceUUID, "")
 	if err != nil {
 		return err
 	}
@@ -122,15 +110,11 @@ func (c *Client) DeleteStatefiles(ctx context.Context, projectUUID, workspaceUUI
 	return expectStatus("delete statefiles", resp, http.StatusNoContent)
 }
 
-func (c *Client) DeleteStatefile(ctx context.Context, projectUUID, workspaceUUID, uuid string) error {
+func (c *Client) DeleteStatefile(ctx context.Context, uuid string) error {
 	if uuid == "" {
 		return APIError{StatusCode: http.StatusBadRequest, Message: "statefile uuid is required"}
 	}
-	path, err := statefilesPath(projectUUID, workspaceUUID, uuid)
-	if err != nil {
-		return err
-	}
-	resp, err := c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodDelete, "/statefiles/"+url.PathEscape(uuid), nil, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -138,14 +122,11 @@ func (c *Client) DeleteStatefile(ctx context.Context, projectUUID, workspaceUUID
 	return expectStatus("delete statefile", resp, http.StatusNoContent)
 }
 
-func statefilesPath(projectUUID, workspaceUUID, suffix string) (string, error) {
-	if projectUUID == "" {
-		return "", fmt.Errorf("project uuid is required")
-	}
+func statefilesPath(workspaceUUID, suffix string) (string, error) {
 	if workspaceUUID == "" {
 		return "", fmt.Errorf("workspace uuid is required")
 	}
-	base := fmt.Sprintf("/v1/projects/%s/workspaces/%s/statefiles", url.PathEscape(projectUUID), url.PathEscape(workspaceUUID))
+	base := fmt.Sprintf("/workspaces/%s/statefiles", url.PathEscape(workspaceUUID))
 	if suffix != "" {
 		base = base + "/" + url.PathEscape(suffix)
 	}

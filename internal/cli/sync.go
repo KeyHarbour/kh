@@ -65,27 +65,32 @@ func newSyncCmd() *cobra.Command {
 		Short: "Sync Terraform state between backends",
 		Long: `Sync reads state from a source backend and writes it to a destination backend.
 
-Sources (--from): local, http, tfc, keyharbour
-Destinations (--to): keyharbour, file, http, tfc
+Sources  (--from): local, http, tfc, keyharbour
+Destinations (--to): keyharbour, file, http, tfc  (default: keyharbour)
 
 Examples:
-  # Sync from local file to KeyHarbour (most common)
-  kh sync --from=local --path=./terraform.tfstate --to=keyharbour --project=my-project --workspace=prod
+  # From local file to KeyHarbour
+  kh sync --from=local --path=./terraform.tfstate --project=<uuid> --workspace=prod
 
-  # Sync from Terraform Cloud to KeyHarbour
-  kh sync --from=tfc --tfc-org=my-org --tfc-workspace=ws-name --to=keyharbour --project=my-project --create-workspace
+  # From Terraform Cloud to KeyHarbour (auto-create workspace)
+  kh sync --from=tfc --tfc-org=my-org --tfc-workspace=ws-name --project=<uuid> --create-workspace
 
-  # Sync from KeyHarbour to local file
-  kh sync --from=keyharbour --src-project=my-project --src-workspace=prod --to=file --out=./backup.tfstate
+  # From KeyHarbour to local file
+  kh sync --from=keyharbour --src-project=<uuid> --src-workspace=prod --to=file --out=./backup.tfstate
 
-  # Sync from KeyHarbour to Terraform Cloud
-  kh sync --from=keyharbour --src-project=proj1 --src-workspace=ws1 --to=tfc --dest-tfc-org=my-org --dest-tfc-workspace=ws-name
+  # From KeyHarbour to Terraform Cloud
+  kh sync --from=keyharbour --src-project=<uuid> --src-workspace=ws1 \
+    --to=tfc --dest-tfc-org=my-org --dest-tfc-workspace=ws-name
 
-  # Sync from HTTP backend to local file
+  # From HTTP backend to local file
   kh sync --from=http --url=https://old-backend.com/state --to=file --out=./imported.tfstate
 
-  # Sync between KeyHarbour workspaces
-  kh sync --from=keyharbour --src-project=proj1 --src-workspace=ws1 --to=keyharbour --project=proj2 --workspace=ws2
+  # Between two KeyHarbour workspaces
+  kh sync --from=keyharbour --src-project=<proj1> --src-workspace=ws1 \
+    --to=keyharbour --project=<proj2> --workspace=ws2
+
+  # Dry-run: preview what would be synced
+  kh sync --from=tfc --tfc-org=my-org --tfc-workspace=ws --project=<uuid> --dry-run
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadWithEnv()
@@ -183,7 +188,7 @@ Examples:
 					return exitcodes.With(exitcodes.ValidationError, err)
 				}
 				destProj = &proj
-				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspace, env, createWorkspace)
+				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspace, createWorkspace)
 			case "file":
 				if outPath == "" {
 					return exitcodes.With(exitcodes.ValidationError, errors.New("--out is required for --to=file"))
@@ -389,7 +394,7 @@ Examples:
 	cmd.Flags().StringVar(&to, "to", "", "Destination backend: keyharbour|file|http|tfc (default: keyharbour)")
 	cmd.Flags().StringVar(&project, "project", "", "Target KeyHarbour project (for --to=keyharbour)")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Target KeyHarbour workspace (for --to=keyharbour)")
-	cmd.Flags().StringVar(&env, "env", "", "Environment tag (for KeyHarbour)")
+	cmd.Flags().StringVar(&env, "env", "", "Filter statefiles by environment name (for --from=keyharbour)")
 	cmd.Flags().BoolVar(&createWorkspace, "create-workspace", false, "Create workspace if it does not exist (for --to=keyharbour)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path for --to=file (supports {workspace} and {key} templates)")
 	cmd.Flags().StringVar(&destHTTPURL, "dest-url", "", "Destination URL for --to=http")
