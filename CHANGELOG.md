@@ -1,3 +1,16 @@
+## v0.9.0 (2026-03-01)
+
+### Features
+* migrate to V2 API and remove migrate command (6325add)
+* support KH_ENVIRONMENT env var for --env flag (405b38e)
+* add kv commands to manage workspace key/value pairs (4f1327e)
+
+### Documentation
+* add KH_ENVIRONMENT to kv notes and env vars table (11ad189)
+* add kv commands and KH_WORKSPACE to README (9349c11)
+
+---
+
 ## v0.8.8 (2026-02-24)
 
 ### Maintenance
