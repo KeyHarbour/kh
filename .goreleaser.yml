@@ -47,12 +47,27 @@ archives:
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 
+brews:
+  - name: kh
+    homepage: "https://keyharbour.ca"
+    description: "Official CLI for KeyHarbour — self-hosted Terraform state backend"
+    license: "MIT"
+    repository:
+      owner: KeyHarbour
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.GH_PAT }}"
+    directory: Formula
+    install: |
+      bin.install "kh"
+    test: |
+      system "#{bin}/kh", "--version"
+    commit_author:
+      name: github-actions[bot]
+      email: github-actions[bot]@users.noreply.github.com
+
 changelog:
   use: git
-
-release:
-  # owner/name are intentionally omitted — GoReleaser auto-detects the
-  # repository from the git remote, which works correctly in GitHub Actions.
 
 snapshot:
   version_template: "snapshot-{{ .Timestamp }}"
