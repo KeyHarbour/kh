@@ -41,7 +41,7 @@ func TestResolveProjectRefRequiresUUID(t *testing.T) {
 func TestResolveProjectRefByUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/projects/p-1":
+		case "/projects/p-1":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(khclient.Project{UUID: "p-1", Name: "demo"})
 		default:
@@ -62,15 +62,9 @@ func TestResolveProjectRefByUUID(t *testing.T) {
 func TestResolveWorkspaceRefByUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/projects":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]khclient.Project{{UUID: "p-1", Name: "demo"}})
-		case "/v1/projects/p-1/workspaces":
+		case "/projects/p-1/workspaces":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]khclient.Workspace{{UUID: "w-1", Name: "default"}})
-		case "/v1/projects/p-1/workspaces/w-1":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(khclient.Workspace{Name: "default"})
 		default:
 			http.NotFound(w, r)
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"kh/internal/config"
@@ -17,7 +16,6 @@ import (
 type kvCmdOpts struct {
 	project   string
 	workspace string
-	env       string
 }
 
 func newKVCmd() *cobra.Command {
@@ -25,10 +23,16 @@ func newKVCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "kv",
 		Short: "Manage key/value pairs in a workspace",
+		Long: `Manage key/value pairs stored in a KeyHarbour workspace.
+
+Commands that operate on a specific key (get, update, delete) only require the
+key name — no --project or --workspace flags needed.
+
+Commands that operate on the workspace collection (ls, set) require --project
+and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).`,
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
-	cmd.PersistentFlags().StringVar(&opts.env, "env", os.Getenv("KH_ENVIRONMENT"), "Environment name (or KH_ENVIRONMENT)")
 
 	cmd.AddCommand(newKVListCmd(opts))
 	cmd.AddCommand(newKVGetCmd(opts))
@@ -38,17 +42,17 @@ func newKVCmd() *cobra.Command {
 	return cmd
 }
 
-func (o *kvCmdOpts) resolve(cfg config.Config) (projectUUID, workspaceUUID string, err error) {
+func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error) {
 	projectRef := projectRefOrEnv(o.project, cfg)
 	if projectRef == "" {
-		return "", "", errors.New("--project is required (or set KH_PROJECT)")
+		return "", errors.New("--project is required (or set KH_PROJECT)")
 	}
 	workspaceRef := o.workspace
 	if workspaceRef == "" {
 		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 	}
 	if workspaceRef == "" {
-		return "", "", errors.New("--workspace is required (or set KH_WORKSPACE)")
+		return "", errors.New("--workspace is required (or set KH_WORKSPACE)")
 	}
 
 	client := khclient.New(cfg)
@@ -57,13 +61,13 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (projectUUID, workspaceUUID strin
 
 	project, err := resolveProjectRef(ctx, client, projectRef)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	workspace, err := resolveWorkspaceRef(ctx, client, project.UUID, workspaceRef)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return project.UUID, workspace.UUID, nil
+	return workspace.UUID, nil
 }
 
 // ── ls ────────────────────────────────────────────────────────────────────────
@@ -73,9 +77,18 @@ func newKVListCmd(opts *kvCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List key/value pairs in a workspace",
+		Long: `List all key/value pairs stored in a workspace.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Private values are masked as *** in table output; use -o json to see the raw
+response (values remain masked server-side unless the token has reveal access).
+
+Examples:
+  kh kv ls --project <uuid> --workspace <uuid>
+  kh kv ls --project <uuid> --workspace prod -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			projectUUID, workspaceUUID, err := opts.resolve(cfg)
+			workspaceUUID, err := opts.resolve(cfg)
 			if err != nil {
 				return err
 			}
@@ -83,7 +96,7 @@ func newKVListCmd(opts *kvCmdOpts) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			items, err := client.ListKeyValues(ctx, projectUUID, workspaceUUID, opts.env)
+			items, err := client.ListKeyValues(ctx, workspaceUUID)
 			if err != nil {
 				return err
 			}
@@ -121,18 +134,25 @@ func newKVGetCmd(opts *kvCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <key>",
 		Short: "Get a key/value by key name",
-		Args:  cobra.ExactArgs(1),
+		Long: `Retrieve a single key/value pair by its key name.
+
+No --project or --workspace flags are required; the key name is globally unique
+within your token scope.
+
+Private values are masked unless --reveal is passed.
+
+Examples:
+  kh kv get MY_KEY
+  kh kv get MY_SECRET --reveal
+  kh kv get MY_KEY -o json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			projectUUID, workspaceUUID, err := opts.resolve(cfg)
-			if err != nil {
-				return err
-			}
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			kv, err := client.GetKeyValue(ctx, projectUUID, workspaceUUID, args[0])
+			kv, err := client.GetKeyValue(ctx, args[0])
 			if err != nil {
 				return err
 			}
@@ -166,14 +186,19 @@ func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 	var expiresAt string
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
-		Short: "Create a new key/value (requires --env)",
-		Args:  cobra.ExactArgs(2),
+		Short: "Create a new key/value in a workspace",
+		Long: `Create a new key/value pair in a workspace.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+
+Examples:
+  kh kv set MY_KEY my-value --project <uuid> --workspace <uuid>
+  kh kv set MY_SECRET s3cr3t --project <uuid> --workspace prod --private
+  kh kv set TEMP_KEY value --project <uuid> --workspace prod --expires-at 2026-12-31T00:00:00Z`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.env == "" {
-				return errors.New("--env is required to create a key/value")
-			}
 			cfg, _ := config.LoadWithEnv()
-			projectUUID, workspaceUUID, err := opts.resolve(cfg)
+			workspaceUUID, err := opts.resolve(cfg)
 			if err != nil {
 				return err
 			}
@@ -190,10 +215,10 @@ func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 				req.ExpiresAt = &expiresAt
 			}
 
-			if err := client.CreateKeyValue(ctx, projectUUID, workspaceUUID, opts.env, req); err != nil {
+			if err := client.CreateKeyValue(ctx, workspaceUUID, req); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Key %q created in environment %q.\n", args[0], opts.env)
+			fmt.Fprintf(cmd.OutOrStdout(), "Key %q created.\n", args[0])
 			return nil
 		},
 	}
@@ -211,16 +236,21 @@ func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <key>",
 		Short: "Update an existing key/value",
-		Args:  cobra.ExactArgs(1),
+		Long: `Update the value, private flag, or expiry of an existing key/value.
+
+No --project or --workspace flags are required; the key name uniquely identifies
+the record within your token scope.
+
+Examples:
+  kh kv update MY_KEY --value new-value
+  kh kv update MY_KEY --value new-value --private true
+  kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("value") {
 				return errors.New("--value is required")
 			}
 			cfg, _ := config.LoadWithEnv()
-			projectUUID, workspaceUUID, err := opts.resolve(cfg)
-			if err != nil {
-				return err
-			}
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
@@ -234,7 +264,7 @@ func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 				req.Private = &b
 			}
 
-			if err := client.UpdateKeyValue(ctx, projectUUID, workspaceUUID, args[0], req); err != nil {
+			if err := client.UpdateKeyValue(ctx, args[0], req); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Key %q updated.\n", args[0])
@@ -254,22 +284,27 @@ func newKVDeleteCmd(opts *kvCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <key>",
 		Short: "Delete a key/value",
-		Args:  cobra.ExactArgs(1),
+		Long: `Delete a key/value pair by key name.
+
+No --project or --workspace flags are required; the key name uniquely identifies
+the record within your token scope.
+
+Pass --force to skip the confirmation prompt.
+
+Examples:
+  kh kv delete MY_KEY --force`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Delete key %q? This cannot be undone. Pass --force to confirm.\n", args[0])
 				return nil
 			}
 			cfg, _ := config.LoadWithEnv()
-			projectUUID, workspaceUUID, err := opts.resolve(cfg)
-			if err != nil {
-				return err
-			}
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			if err := client.DeleteKeyValue(ctx, projectUUID, workspaceUUID, args[0]); err != nil {
+			if err := client.DeleteKeyValue(ctx, args[0]); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Key %q deleted.\n", args[0])

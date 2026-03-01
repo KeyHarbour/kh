@@ -16,7 +16,7 @@ func TestListStatefiles(t *testing.T) {
 	var called bool
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/statefiles" {
+		if r.URL.Path != "/workspaces/ws/statefiles" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("environment"); got != "prod" {
@@ -27,7 +27,7 @@ func TestListStatefiles(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	items, err := c.ListStatefiles(context.Background(), "proj", "ws", "prod")
+	items, err := c.ListStatefiles(context.Background(), "ws", "prod")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestListStatefiles(t *testing.T) {
 func TestCreateStatefile(t *testing.T) {
 	var body []byte
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/statefiles" {
+		if r.URL.Path != "/workspaces/ws/statefiles" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("environment"); got != "dev" {
-			t.Fatalf("expected environment dev, got %s", got)
+		if got := r.URL.Query().Get("environment"); got != "" {
+			t.Fatalf("expected no environment query, got %s", got)
 		}
 		var err error
 		body, err = io.ReadAll(r.Body)
@@ -61,7 +61,7 @@ func TestCreateStatefile(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	resp, err := c.CreateStatefile(context.Background(), "proj", "ws", "dev", CreateStatefileRequest{Content: "{}"})
+	resp, err := c.CreateStatefile(context.Background(), "ws", CreateStatefileRequest{Content: "{}"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -77,14 +77,14 @@ func TestDeleteStatefile(t *testing.T) {
 	var hits int
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		hits++
-		if r.URL.Path != "/v1/projects/proj/workspaces/ws/statefiles/abc" {
+		if r.URL.Path != "/statefiles/abc" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.DeleteStatefile(context.Background(), "proj", "ws", "abc"); err != nil {
+	if err := c.DeleteStatefile(context.Background(), "abc"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if hits != 1 {

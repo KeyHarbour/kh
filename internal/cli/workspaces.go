@@ -102,7 +102,7 @@ func newWorkspacesShowCmd(opts *workspaceCmdOpts) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if detail, err := client.GetWorkspace(ctx, project.UUID, workspace.UUID); err == nil {
+			if detail, err := client.GetWorkspace(ctx, workspace.UUID); err == nil {
 				workspace = detail
 			}
 			payload := struct {

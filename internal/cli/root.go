@@ -21,9 +21,19 @@ var (
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "kh",
-		Short:         "Key-Harbour CLI",
-		Long:          "kh is the Key-Harbour CLI for managing Terraform state across backends and Key-Harbour.",
+		Use:   "kh",
+		Short: "KeyHarbour CLI",
+		Long: `kh is the official CLI for KeyHarbour, a self-hosted Terraform state backend.
+
+It lets you migrate Terraform state from any backend (local, S3, HTTP, Terraform Cloud)
+to KeyHarbour, manage statefile versions, and handle workspace key/value pairs.
+
+Environment variables:
+  KH_ENDPOINT     API base URL (e.g. https://app.keyharbour.ca/api/v2)
+  KH_TOKEN        Bearer token for authentication
+  KH_PROJECT      Default project UUID
+  KH_WORKSPACE    Default workspace name or UUID
+  KH_DEBUG        Set to 1 for verbose debug logging`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -66,7 +76,6 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newStatefilesCmd())
 	cmd.AddCommand(newKVCmd())
 	cmd.AddCommand(newSyncCmd())
-	cmd.AddCommand(newMigrateCmd())
 	cmd.AddCommand(newVerifyCmd())
 	cmd.AddCommand(newLockCmd())
 	cmd.AddCommand(newUnlockCmd())

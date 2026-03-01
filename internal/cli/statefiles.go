@@ -45,7 +45,14 @@ func newStatefilesCmd() *cobra.Command {
 	target := &statefileTarget{}
 	cmd := &cobra.Command{
 		Use:   "statefiles",
-		Short: "Manage workspace statefiles",
+		Short: "Manage workspace statefile versions",
+		Long: `Manage Terraform statefile versions stored in a KeyHarbour workspace.
+
+Commands that operate on the workspace collection (ls, last, push, rm-all)
+require --project and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).
+
+Commands that operate on a specific version (get, rm) only require the
+statefile UUID — no --project or --workspace flags needed.`,
 	}
 	cmd.PersistentFlags().StringVar(&target.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&target.workspace, "workspace", "", "Workspace name or UUID")
@@ -63,17 +70,25 @@ func newStatefilesListCmd(target *statefileTarget) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List statefiles for a workspace",
+		Long: `List statefile versions for a workspace, ordered newest first.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Use --environment to filter by environment name.
+
+Examples:
+  kh statefiles ls --project <uuid> --workspace <uuid>
+  kh statefiles ls --project <uuid> --workspace prod -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
+			_, workspace, err := target.resolve(ctx, resolver, cfg)
 			if err != nil {
 				return err
 			}
-			items, err := client.ListStatefiles(ctx, project, workspace, environment)
+			items, err := client.ListStatefiles(ctx, workspace, environment)
 			if err != nil {
 				return err
 			}
@@ -81,13 +96,12 @@ func newStatefilesListCmd(target *statefileTarget) *cobra.Command {
 			if printer.Format == "json" {
 				return printer.JSON(items)
 			}
-			headers := []string{"UUID", "PUBLISHED_AT", "ENVIRONMENT", "BYTES"}
+			headers := []string{"UUID", "PUBLISHED_AT", "BYTES"}
 			rows := make([][]string, 0, len(items))
 			for _, sf := range items {
 				rows = append(rows, []string{
 					sf.UUID,
 					sf.PublishedAt.Format(time.RFC3339),
-					sf.Environment,
 					fmt.Sprint(len(sf.Content)),
 				})
 			}
@@ -100,22 +114,28 @@ func newStatefilesListCmd(target *statefileTarget) *cobra.Command {
 }
 
 func newStatefilesLastCmd(target *statefileTarget) *cobra.Command {
-	var environment string
 	var raw bool
 	cmd := &cobra.Command{
 		Use:   "last",
 		Short: "Show the latest statefile for a workspace",
+		Long: `Retrieve the most recently uploaded statefile for a workspace.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+
+Examples:
+  kh statefiles last --project <uuid> --workspace <uuid>
+  kh statefiles last --project <uuid> --workspace prod --raw`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
+			_, workspace, err := target.resolve(ctx, resolver, cfg)
 			if err != nil {
 				return err
 			}
-			item, err := client.GetLastStatefile(ctx, project, workspace, environment)
+			item, err := client.GetLastStatefile(ctx, workspace)
 			if err != nil {
 				return err
 			}
@@ -129,7 +149,6 @@ func newStatefilesLastCmd(target *statefileTarget) *cobra.Command {
 			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(item)
 		},
 	}
-	cmd.Flags().StringVar(&environment, "environment", "", "Filter by environment name")
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw statefile content")
 	return cmd
 }
@@ -138,7 +157,15 @@ func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
 	var raw bool
 	cmd := &cobra.Command{
 		Use:   "get <uuid>",
-		Short: "Show a specific statefile",
+		Short: "Show a specific statefile by UUID",
+		Long: `Retrieve a specific statefile version by its UUID.
+
+No --project or --workspace flags are required; the UUID uniquely identifies
+the statefile. Use 'kh statefiles ls' to find UUIDs.
+
+Examples:
+  kh statefiles get <uuid>
+  kh statefiles get <uuid> --raw`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles get requires exactly one argument: <uuid>"))
@@ -150,12 +177,7 @@ func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
-			if err != nil {
-				return err
-			}
-			item, err := client.GetStatefile(ctx, project, workspace, args[0])
+			item, err := client.GetStatefile(ctx, args[0])
 			if err != nil {
 				return err
 			}
@@ -176,10 +198,17 @@ func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
 func newStatefilesPushCmd(target *statefileTarget) *cobra.Command {
 	var filePath string
 	var fromStdin bool
-	var environment string
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Upload a new statefile version",
+		Short: "Upload a new statefile version to a workspace",
+		Long: `Upload a Terraform state file as a new version in a workspace.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Provide the state data via --file or --stdin.
+
+Examples:
+  kh statefiles push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
+  terraform state pull | kh statefiles push --project <uuid> --workspace prod --stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" && !fromStdin {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("provide --file or --stdin for statefiles push"))
@@ -206,37 +235,41 @@ func newStatefilesPushCmd(target *statefileTarget) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
+			_, workspace, err := target.resolve(ctx, resolver, cfg)
 			if err != nil {
 				return err
 			}
-			resp, err := client.CreateStatefile(ctx, project, workspace, environment, khclient.CreateStatefileRequest{Content: string(data)})
+			resp, err := client.CreateStatefile(ctx, workspace, khclient.CreateStatefileRequest{Content: string(data)})
 			if err != nil {
 				return err
 			}
 			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(struct {
-				Action      string `json:"action"`
-				Status      string `json:"status"`
-				Bytes       int    `json:"bytes"`
-				Environment string `json:"environment,omitempty"`
+				Action string `json:"action"`
+				Status string `json:"status"`
+				Bytes  int    `json:"bytes"`
 			}{
-				Action:      "push",
-				Status:      resp.Status,
-				Bytes:       len(data),
-				Environment: environment,
+				Action: "push",
+				Status: resp.Status,
+				Bytes:  len(data),
 			})
 		},
 	}
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to a Terraform state file")
 	cmd.Flags().BoolVar(&fromStdin, "stdin", false, "Read statefile content from stdin")
-	cmd.Flags().StringVar(&environment, "environment", "", "Environment tag for the statefile")
 	return cmd
 }
 
 func newStatefilesDeleteCmd(target *statefileTarget) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <uuid>",
-		Short: "Delete a single statefile version",
+		Short: "Delete a specific statefile version by UUID",
+		Long: `Delete a specific statefile version by its UUID.
+
+No --project or --workspace flags are required; the UUID uniquely identifies
+the statefile. Use 'kh statefiles ls' to find UUIDs.
+
+Examples:
+  kh statefiles rm <uuid>`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles rm requires exactly one argument: <uuid>"))
@@ -248,12 +281,7 @@ func newStatefilesDeleteCmd(target *statefileTarget) *cobra.Command {
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
-			if err != nil {
-				return err
-			}
-			if err := client.DeleteStatefile(ctx, project, workspace, args[0]); err != nil {
+			if err := client.DeleteStatefile(ctx, args[0]); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "statefile %s deleted\n", args[0])
@@ -267,7 +295,14 @@ func newStatefilesDeleteAllCmd(target *statefileTarget) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "rm-all",
-		Short: "Delete all statefiles for a workspace",
+		Short: "Delete all statefile versions for a workspace",
+		Long: `Delete every statefile version stored in a workspace. This is irreversible.
+
+Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Pass --force to confirm — the command refuses to proceed without it.
+
+Examples:
+  kh statefiles rm-all --project <uuid> --workspace <uuid> --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("refusing to delete all statefiles without --force"))
@@ -277,11 +312,11 @@ func newStatefilesDeleteAllCmd(target *statefileTarget) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 			resolver := clientReferenceResolver{client: client}
-			project, workspace, err := target.resolve(ctx, resolver, cfg)
+			_, workspace, err := target.resolve(ctx, resolver, cfg)
 			if err != nil {
 				return err
 			}
-			if err := client.DeleteStatefiles(ctx, project, workspace); err != nil {
+			if err := client.DeleteStatefiles(ctx, workspace); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "all statefiles deleted")

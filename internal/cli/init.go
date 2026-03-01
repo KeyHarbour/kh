@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,10 +127,15 @@ retry_max      = 2
 `, endpoint, stateID, endpoint, stateID, endpoint, stateID)
 }
 
-// terraformBackendHCL generates backend.hcl using the statefile API with project/workspace UUIDs
+// terraformBackendHCL generates backend.hcl for the Terraform HTTP backend using workspace UUIDs.
+// It uses only the scheme+host from endpoint so the path is constructed correctly regardless
+// of whether endpoint carries an /api/v2 suffix.
 func terraformBackendHCL(endpoint, projectUUID, workspaceUUID string) string {
-	// HTTP backend using the statefile API
-	basePath := fmt.Sprintf("%s/v1/projects/%s/workspaces/%s/state", endpoint, projectUUID, workspaceUUID)
+	base := endpoint
+	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
+		base = u.Scheme + "://" + u.Host
+	}
+	basePath := fmt.Sprintf("%s/api/v1/workspaces/%s/state", base, workspaceUUID)
 	return fmt.Sprintf(`address        = "%s"
 lock_address   = "%s/lock"
 unlock_address = "%s/lock"

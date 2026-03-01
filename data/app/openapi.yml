@@ -1,14 +1,14 @@
 ---
 openapi: 3.0.1
 info:
-  title: API V1
-  version: v1
+  title: API V2
+  version: v2
 servers:
-- url: https://api.keyharbour.test
+- url: https://app.keyharbour.test/api/v2
   description: API Serveur
   variables:
     defaultHost:
-      default: https://api.keyharbour.test
+      default: https://app.keyharbour.test
 components:
   schemas:
     Created:
@@ -31,7 +31,7 @@ components:
 security:
 - bearerAuth: []
 paths:
-  "/v1/auth":
+  "/auth":
     get:
       summary: auth application
       tags:
@@ -43,7 +43,180 @@ paths:
           description: Access granted
         '401':
           description: Unauthorized
-  "/v1/projects/{uuid}":
+  "/workspaces/{workspace_uuid}/keyvalues":
+    get:
+      summary: Get all Keyvalue
+      tags:
+      - Key/Values
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                    expires_at:
+                      type: string
+                      format: date_time
+                    private:
+                      type: boolean
+                  required:
+                  - key
+                  - value
+                  - expires_at
+                  - private
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    post:
+      summary: Create a new Keyvalue
+      tags:
+      - Key/Values
+      parameters:
+      - name: workspace_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Created"
+        '400':
+          description: Bad Request
+        '422':
+          description: Unprocessable Entity
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                value:
+                  type: string
+                expires_at:
+                  type: string
+                  format: date_time
+                private:
+                  type: boolean
+              required:
+              - key
+              - value
+  "/keyvalues/{key}":
+    get:
+      summary: Get a specific workspace
+      tags:
+      - Key/Values
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date_time
+                  private:
+                    type: boolean
+                required:
+                - value
+                - expires_at
+                - private
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+    patch:
+      summary: Update a specific key_value_store
+      tags:
+      - Key/Values
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Updated"
+        '400':
+          description: Bad Request
+        '422':
+          description: Unprocessable Entity
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                value:
+                  type: string
+                expires_at:
+                  type: string
+                  format: date_time
+                private:
+                  type: boolean
+              required:
+              - value
+    delete:
+      summary: Delete a workspace
+      tags:
+      - Key/Values
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: no content
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+  "/projects/{uuid}":
     get:
       summary: get project detail
       tags:
@@ -62,8 +235,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  uuid:
-                    type: string
                   name:
                     type: string
                   environment_names:
@@ -71,9 +242,10 @@ paths:
                     items:
                       type: string
                 required:
-                - uuid
                 - name
                 - environments
+        '400':
+          description: Not found
         '404':
           description: Not found
         '401':
@@ -114,18 +286,13 @@ paths:
               required:
               - name
               - environment_names
-  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles":
+  "/workspaces/{workspace_uuid}/statefiles":
     get:
       summary: Get all statefiles
       tags:
       - Statefiles
       parameters:
       - name: workspace_uuid
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: project_uuid
         in: path
         required: true
         schema:
@@ -169,11 +336,6 @@ paths:
         required: true
         schema:
           type: string
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       responses:
         '204':
           description: no content
@@ -189,15 +351,6 @@ paths:
       - name: workspace_uuid
         in: path
         required: true
-        schema:
-          type: string
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: environment
-        in: query
         schema:
           type: string
       responses:
@@ -219,7 +372,7 @@ paths:
                   type: string
               required:
               - content
-  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles/last":
+  "/workspaces/{workspace_uuid}/statefiles/last":
     get:
       summary: Get last statefile
       tags:
@@ -228,15 +381,6 @@ paths:
       - name: workspace_uuid
         in: path
         required: true
-        schema:
-          type: string
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: environment
-        in: query
         schema:
           type: string
       responses:
@@ -259,22 +403,12 @@ paths:
           description: Not found
         '401':
           description: Unauthorized
-  "/v1/projects/{project_uuid}/workspaces/{workspace_uuid}/statefiles/{uuid}":
+  "/statefiles/{uuid}":
     get:
       summary: Get a specific statefile
       tags:
       - Statefiles
       parameters:
-      - name: workspace_uuid
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       - name: uuid
         in: path
         required: true
@@ -305,16 +439,6 @@ paths:
       tags:
       - Statefiles
       parameters:
-      - name: workspace_uuid
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       - name: uuid
         in: path
         required: true
@@ -327,7 +451,7 @@ paths:
           description: Not found
         '401':
           description: Unauthorized
-  "/v1/projects/{project_uuid}/workspaces":
+  "/projects/{project_uuid}/workspaces":
     get:
       summary: Get all workspaces
       tags:
@@ -385,23 +509,24 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
-                description:
-                  type: string
+                workspace:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                  required:
+                  - name
+                  - description
               required:
-              - content
-  "/v1/projects/{project_uuid}/workspaces/{uuid}":
+              - workspace
+  "/workspaces/{uuid}":
     get:
       summary: Get a specific workspace
       tags:
       - Workspaces
       parameters:
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       - name: uuid
         in: path
         required: true
@@ -415,14 +540,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  uuid:
-                    type: string
                   name:
                     type: string
                   description:
                     type: string
                 required:
-                - uuid
                 - name
                 - description
         '404':
@@ -434,11 +556,6 @@ paths:
       tags:
       - Workspaces
       parameters:
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       - name: uuid
         in: path
         required: true
@@ -477,11 +594,6 @@ paths:
       tags:
       - Workspaces
       parameters:
-      - name: project_uuid
-        in: path
-        required: true
-        schema:
-          type: string
       - name: uuid
         in: path
         required: true
