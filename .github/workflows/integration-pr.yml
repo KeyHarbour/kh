@@ -1,0 +1,32 @@
+name: Integration – PR
+
+# Run a snapshot → regression cycle on every pull request to verify that
+# CLI changes do not break compatibility with the live KeyHarbour backend.
+#
+# Flow:
+#   1. snapshot  – capture current backend state
+#   2. regression – compare the CLI output against that snapshot
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    uses: ./.github/workflows/integration-snapshot.yml
+    secrets: inherit
+    with:
+      environment: staging
+
+  regression:
+    needs: snapshot
+    uses: ./.github/workflows/integration-regression.yml
+    secrets: inherit
+    with:
+      snapshot_run_id: ${{ needs.snapshot.outputs.snapshot_run_id }}
+      environment: staging
+      regression_level: strict

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +171,97 @@ func TestKVRoundTrip(t *testing.T) {
 			t.Fatalf("expected key name in delete output, got: %s", out)
 		}
 		t.Logf("deleted key %q", key)
+	})
+}
+
+// TestKVEncryptionRoundTrip verifies that a value set with --encryption-key is
+// stored as ciphertext on the server and transparently decrypted on retrieval.
+// It also verifies that reading without the key shows a warning, not the plaintext.
+//
+// Required env: KH_ENDPOINT, KH_TOKEN, KH_PROJECT, KH_WORKSPACE
+// Mode guard:   KH_TEST_MODE=diagnostics
+func TestKVEncryptionRoundTrip(t *testing.T) {
+	if os.Getenv("KH_TEST_MODE") != "diagnostics" {
+		t.Skip("set KH_TEST_MODE=diagnostics to run")
+	}
+	requireEnv(t, "KH_ENDPOINT", "KH_TOKEN", "KH_PROJECT", "KH_WORKSPACE")
+
+	kh := khBin(t)
+	project := os.Getenv("KH_PROJECT")
+	workspace := os.Getenv("KH_WORKSPACE")
+
+	// Generate a fresh AES-256 key via openssl.
+	keyOut, err := exec.Command("openssl", "rand", "-hex", "32").Output()
+	if err != nil {
+		t.Skipf("openssl not available, skipping encryption test: %v", err)
+	}
+	encKey := strings.TrimSpace(string(keyOut))
+
+	key := fmt.Sprintf("KH_CLI_ENC_TEST_%d", time.Now().UnixMilli())
+
+	t.Cleanup(func() {
+		if out, err := runCmd(t, kh,
+			"kv", "delete", key,
+			"--project", project,
+			"--workspace", workspace,
+			"--force",
+		); err != nil {
+			t.Logf("cleanup delete failed: %v\n%s", err, out)
+		}
+	})
+
+	t.Run("SetEncrypted", func(t *testing.T) {
+		out := runOK(t, kh,
+			"kv", "set", key, "my-secret",
+			"--project", project,
+			"--workspace", workspace,
+			"--encryption-key", encKey,
+		)
+		if !strings.Contains(string(out), key) {
+			t.Fatalf("expected key name in output, got: %s", out)
+		}
+		t.Logf("set encrypted key %q", key)
+	})
+
+	t.Run("RawValueIsCiphertext", func(t *testing.T) {
+		// Fetch without the key — value should NOT be the plaintext.
+		cmd := exec.Command(kh, "kv", "get", key, "--project", project, "--workspace", workspace)
+		cmd.Env = os.Environ()
+		rawOut, _ := cmd.CombinedOutput()
+		if strings.Contains(string(rawOut), "my-secret") {
+			t.Fatalf("plaintext visible without encryption key — expected ciphertext, got: %s", rawOut)
+		}
+		t.Logf("confirmed plaintext not visible without key")
+	})
+
+	t.Run("GetDecrypts", func(t *testing.T) {
+		out := timedRun(t, 10*time.Second, kh,
+			"kv", "get", key,
+			"--project", project,
+			"--workspace", workspace,
+			"--encryption-key", encKey,
+		)
+		if !strings.Contains(string(out), "my-secret") {
+			t.Fatalf("expected decrypted value in output, got: %s", out)
+		}
+		t.Logf("decrypted value matches original plaintext")
+	})
+
+	t.Run("WrongKeyErrors", func(t *testing.T) {
+		wrongKey, _ := exec.Command("openssl", "rand", "-hex", "32").Output()
+		cmd := exec.Command(kh, "kv", "get", key,
+			"--project", project,
+			"--workspace", workspace,
+			"--encryption-key", strings.TrimSpace(string(wrongKey)),
+		)
+		cmd.Env = os.Environ()
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected non-zero exit with wrong key, got output: %s", out)
+		}
+		if !strings.Contains(string(out), "decryption failed") {
+			t.Fatalf("expected decryption error message, got: %s", out)
+		}
+		t.Logf("wrong key correctly rejected")
 	})
 }

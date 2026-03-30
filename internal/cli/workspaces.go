@@ -26,6 +26,9 @@ func newWorkspacesCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.AddCommand(newWorkspacesListCmd(opts))
 	cmd.AddCommand(newWorkspacesShowCmd(opts))
+	cmd.AddCommand(newWorkspacesCreateCmd(opts))
+	cmd.AddCommand(newWorkspacesUpdateCmd(opts))
+	cmd.AddCommand(newWorkspacesDeleteCmd(opts))
 	return cmd
 }
 
@@ -72,6 +75,128 @@ func newWorkspacesListCmd(opts *workspaceCmdOpts) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json (overrides global)")
+	return cmd
+}
+
+func newWorkspacesCreateCmd(opts *workspaceCmdOpts) *cobra.Command {
+	var description string
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a new workspace in a project",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.LoadWithEnv()
+			ref, err := opts.projectRef(cfg)
+			if err != nil {
+				return err
+			}
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			project, err := resolveProjectRef(ctx, client, ref)
+			if err != nil {
+				return err
+			}
+			ws, err := client.CreateWorkspace(ctx, project.UUID, khclient.CreateWorkspaceRequest{
+				Name:        args[0],
+				Description: description,
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Workspace %q created (uuid: %s).\n", ws.Name, ws.UUID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&description, "description", "", "Workspace description")
+	return cmd
+}
+
+func newWorkspacesUpdateCmd(opts *workspaceCmdOpts) *cobra.Command {
+	var name, description string
+	cmd := &cobra.Command{
+		Use:   "update <name-or-uuid>",
+		Short: "Update a workspace name or description",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("name") && !cmd.Flags().Changed("description") {
+				return fmt.Errorf("at least one of --name or --description is required")
+			}
+			cfg, _ := config.LoadWithEnv()
+			ref, err := opts.projectRef(cfg)
+			if err != nil {
+				return err
+			}
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			project, err := resolveProjectRef(ctx, client, ref)
+			if err != nil {
+				return err
+			}
+			workspace, err := resolveWorkspaceRef(ctx, client, project.UUID, args[0])
+			if err != nil {
+				return err
+			}
+			// Fetch current values to fill in any unset fields
+			if current, err := client.GetWorkspace(ctx, workspace.UUID); err == nil {
+				if !cmd.Flags().Changed("name") {
+					name = current.Name
+				}
+				if !cmd.Flags().Changed("description") {
+					description = current.Description
+				}
+			}
+			if err := client.UpdateWorkspace(ctx, workspace.UUID, khclient.UpdateWorkspaceRequest{
+				Name:        name,
+				Description: description,
+			}); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Workspace %q updated.\n", workspace.Name)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "New workspace name")
+	cmd.Flags().StringVar(&description, "description", "", "New workspace description")
+	return cmd
+}
+
+func newWorkspacesDeleteCmd(opts *workspaceCmdOpts) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "delete <name-or-uuid>",
+		Short: "Delete a workspace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Delete workspace %q? This cannot be undone. Pass --force to confirm.\n", args[0])
+				return nil
+			}
+			cfg, _ := config.LoadWithEnv()
+			ref, err := opts.projectRef(cfg)
+			if err != nil {
+				return err
+			}
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			project, err := resolveProjectRef(ctx, client, ref)
+			if err != nil {
+				return err
+			}
+			workspace, err := resolveWorkspaceRef(ctx, client, project.UUID, args[0])
+			if err != nil {
+				return err
+			}
+			if err := client.DeleteWorkspace(ctx, workspace.UUID); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Workspace %q deleted.\n", workspace.Name)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "Confirm deletion without prompting")
 	return cmd
 }
 

@@ -183,6 +183,17 @@ kh workspaces ls --project <uuid>
 
 # Show workspace details
 kh workspaces show <name-or-uuid> --project <uuid>
+
+# Create a new workspace
+kh workspaces create <name> --project <uuid>
+kh workspaces create <name> --project <uuid> --description "my workspace"
+
+# Update a workspace name or description
+kh workspaces update <name-or-uuid> --project <uuid> --name <new-name>
+kh workspaces update <name-or-uuid> --project <uuid> --description "new description"
+
+# Delete a workspace (--force required to confirm)
+kh workspaces delete <name-or-uuid> --project <uuid> --force
 ```
 
 ### Key/Value Management (`kv`)
@@ -213,10 +224,67 @@ kh kv update MY_KEY --value new-value --private false
 kh kv delete MY_KEY --force
 ```
 
+#### Client-Side Encryption
+
+Values can be encrypted before being sent to the server using AES-256-GCM. The key never leaves the client — the server stores opaque ciphertext.
+
+```zsh
+# Generate a key (save this securely)
+openssl rand -hex 32
+
+# Store an encrypted value
+kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid> \
+  --encryption-key <64-hex-chars>
+
+# Retrieve and decrypt
+kh kv get DB_PASSWORD --encryption-key <64-hex-chars>
+
+# Use the environment variable instead of the flag (recommended for CI)
+export KH_ENCRYPTION_KEY=<64-hex-chars>
+kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid>
+kh kv get DB_PASSWORD
+```
+
+Encrypted values are stored with an `enc:v1:` prefix, making their status auditable. Values without the prefix are treated as plaintext regardless of whether `--encryption-key` is set — existing unencrypted values continue to work.
+
 **Notes:**
 - `--project` and `--workspace` accept a UUID or name; `KH_PROJECT` and `KH_WORKSPACE` env vars are also respected.
 - Private values are masked as `***` in `ls` and `get` output unless `--reveal` is passed.
 - All commands support `-o json` for machine-readable output.
+- Passing `--encryption-key` on the command line risks exposure in shell history; `KH_ENCRYPTION_KEY` is preferred.
+
+### License Management (`license`)
+
+Track software license records for your organisation.
+
+```zsh
+# List all license records
+kh license ls
+kh license ls -o json
+
+# Show details for a specific license
+kh license show <uuid>
+
+# Create a new license record
+kh license create "Terraform Cloud" \
+  --short-name tfc \
+  --owner ops \
+  --vendor HashiCorp \
+  --tier Plus \
+  --seats 50 \
+  --renewal-date 2027-01-01
+
+# Update a license record (any combination of flags)
+kh license update <uuid> --status disabled
+kh license update <uuid> --renewal-date 2028-01-01 --seats 100
+
+# Delete a license record (--force required to confirm)
+kh license delete <uuid> --force
+```
+
+**Status values:** `active`, `disabled`, `archived`
+
+---
 
 ### Integrity (`verify`)
 
@@ -241,6 +309,7 @@ kh verify <state-id> --full
 | `KH_WORKSPACE` | Default workspace UUID or name |
 | `KH_CONCURRENCY` | Default concurrency for parallel operations (default: 4) |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
+| `KH_ENCRYPTION_KEY` | Hex-encoded 256-bit AES key for client-side KV encryption |
 
 **Note:** All commands support environment variable defaults. For example, if `KH_PROJECT` is set, you don't need to specify `--project` on every command.
 

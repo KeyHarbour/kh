@@ -33,7 +33,8 @@ Environment variables:
   KH_TOKEN        Bearer token for authentication
   KH_PROJECT      Default project UUID
   KH_WORKSPACE    Default workspace name or UUID
-  KH_DEBUG        Set to 1 for verbose debug logging`,
+  KH_DEBUG           Set to 1 for verbose debug logging
+  KH_ENCRYPTION_KEY  Hex-encoded 256-bit AES key for client-side KV encryption`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -83,6 +84,7 @@ Environment variables:
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newTFCCmd())
 	cmd.AddCommand(newHTTPCmd())
+	cmd.AddCommand(newLicenseCmd())
 	// version is available via the global --version flag; no separate subcommand required
 
 	// When no subcommand is provided, run this root handler.
