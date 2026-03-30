@@ -1,3 +1,15 @@
+## v1.0.0 (2026-03-30)
+
+### Features
+* add workspace create, update, and delete commands
+* add client-side AES-256-GCM encryption for kv values
+* add kh license command for software license management
+
+### Maintenance
+* remove private files from public repo
+
+---
+
 ## v0.10.0 (2026-03-30)
 
 ### Bug Fixes
