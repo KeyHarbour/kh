@@ -60,7 +60,7 @@ jobs:
           KH_PROJECT: ${{ vars.KH_PROJECT }}
           KH_ORG: ${{ vars.KH_ORG }}
           KH_TEST_MODE: snapshot
-          KH_SNAPSHOT_DIR: ./integration-tests/testdata/snapshots
+          KH_SNAPSHOT_DIR: ${{ github.workspace }}/integration-tests/testdata/snapshots
         run: |
           go test \
             -tags integration \
