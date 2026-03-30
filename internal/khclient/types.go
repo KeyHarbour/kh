@@ -58,6 +58,44 @@ type CreateKeyValueRequest struct {
 	Private   bool    `json:"private,omitempty"`
 }
 
+type UpdateWorkspaceRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type Application struct {
+	UUID        string `json:"uuid,omitempty"`
+	Name        string `json:"name"`
+	ShortName   string `json:"short_name"`
+	Owner       string `json:"owner"`
+	Vendor      string `json:"vendor"`
+	RenewalDate string `json:"renewal_date,omitempty"`
+	Tier        string `json:"tier,omitempty"`
+	Seats       *int   `json:"seats,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
+type CreateApplicationRequest struct {
+	Name        string `json:"name"`
+	ShortName   string `json:"short_name"`
+	Owner       string `json:"owner"`
+	Vendor      string `json:"vendor"`
+	RenewalDate string `json:"renewal_date,omitempty"`
+	Tier        string `json:"tier,omitempty"`
+	Seats       *int   `json:"seats,omitempty"`
+}
+
+type UpdateApplicationRequest struct {
+	Name        string `json:"name,omitempty"`
+	ShortName   string `json:"short_name,omitempty"`
+	Owner       string `json:"owner,omitempty"`
+	Vendor      string `json:"vendor,omitempty"`
+	RenewalDate string `json:"renewal_date,omitempty"`
+	Tier        string `json:"tier,omitempty"`
+	Seats       *int   `json:"seats,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
 type UpdateKeyValueRequest struct {
 	Value     string  `json:"value"`
 	ExpiresAt *string `json:"expires_at,omitempty"`

@@ -7,15 +7,18 @@ import (
 	"time"
 
 	"kh/internal/config"
+	"kh/internal/exitcodes"
 	"kh/internal/khclient"
+	"kh/internal/kvencrypt"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
 )
 
 type kvCmdOpts struct {
-	project   string
-	workspace string
+	project       string
+	workspace     string
+	encryptionKey string
 }
 
 func newKVCmd() *cobra.Command {
@@ -33,6 +36,7 @@ and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).`,
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
+	cmd.PersistentFlags().StringVar(&opts.encryptionKey, "encryption-key", "", "Hex-encoded 256-bit AES key for client-side encryption (or KH_ENCRYPTION_KEY)")
 
 	cmd.AddCommand(newKVListCmd(opts))
 	cmd.AddCommand(newKVGetCmd(opts))
@@ -70,6 +74,21 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	return workspace.UUID, nil
 }
 
+func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
+	raw := o.encryptionKey
+	if raw == "" {
+		raw = config.FromEnvOr(cfg, "KH_ENCRYPTION_KEY", "")
+	}
+	if raw == "" {
+		return nil, nil // encryption not requested
+	}
+	key, err := kvencrypt.ParseKey(raw)
+	if err != nil {
+		return nil, exitcodes.With(exitcodes.ValidationError, err)
+	}
+	return &key, nil
+}
+
 // ── ls ────────────────────────────────────────────────────────────────────────
 
 func newKVListCmd(opts *kvCmdOpts) *cobra.Command {
@@ -101,6 +120,11 @@ Examples:
 				return err
 			}
 
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+
 			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(items)
@@ -114,7 +138,17 @@ Examples:
 					exp = *kv.ExpiresAt
 				}
 				val := kv.Value
-				if kv.Private {
+				switch {
+				case kvencrypt.IsEncrypted(val) && encKey != nil:
+					plain, err := kvencrypt.Decrypt(*encKey, val)
+					if err != nil {
+						val = "[decryption failed]"
+					} else {
+						val = plain
+					}
+				case kvencrypt.IsEncrypted(val):
+					val = "[encrypted]"
+				case kv.Private:
 					val = "***"
 				}
 				rows = append(rows, []string{kv.Key, val, fmt.Sprintf("%v", kv.Private), exp})
@@ -157,13 +191,27 @@ Examples:
 				return err
 			}
 
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+
 			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(kv)
 			}
 
 			val := kv.Value
-			if kv.Private && !reveal {
+			switch {
+			case kvencrypt.IsEncrypted(val) && encKey != nil:
+				plain, err := kvencrypt.Decrypt(*encKey, val)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, err)
+				}
+				val = plain
+			case kvencrypt.IsEncrypted(val):
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key to decrypt\n")
+			case kv.Private && !reveal:
 				val = "*** (use --reveal to show)"
 			}
 			exp := "-"
@@ -206,9 +254,21 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+			value := args[1]
+			if encKey != nil {
+				value, err = kvencrypt.Encrypt(*encKey, value)
+				if err != nil {
+					return fmt.Errorf("encryption failed: %w", err)
+				}
+			}
+
 			req := khclient.CreateKeyValueRequest{
 				Key:     args[0],
-				Value:   args[1],
+				Value:   value,
 				Private: private,
 			}
 			if expiresAt != "" {
@@ -255,7 +315,19 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			req := khclient.UpdateKeyValueRequest{Value: value}
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+			sendValue := value
+			if encKey != nil {
+				sendValue, err = kvencrypt.Encrypt(*encKey, value)
+				if err != nil {
+					return fmt.Errorf("encryption failed: %w", err)
+				}
+			}
+
+			req := khclient.UpdateKeyValueRequest{Value: sendValue}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
 			}

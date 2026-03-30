@@ -85,5 +85,51 @@ func TestSnapshot(t *testing.T) {
 		})
 	}
 
+	// 5. Key/value pairs per workspace.
+	kvDir := filepath.Join(dir, "keyvalues")
+	if err := os.MkdirAll(kvDir, 0o755); err != nil {
+		t.Fatalf("mkdir keyvalues: %v", err)
+	}
+	for _, ws := range workspaces {
+		wsUUID, ok := ws["uuid"].(string)
+		if !ok || wsUUID == "" {
+			continue
+		}
+		wsName, _ := ws["name"].(string)
+		t.Run("keyvalues/"+wsName, func(t *testing.T) {
+			captureJSON(t, kh, kvDir, wsUUID+".json",
+				"kv", "ls",
+				"--project", project,
+				"--workspace", wsUUID,
+				"-o", "json",
+			)
+		})
+	}
+
+	// 6. Project detail.
+	captureJSON(t, kh, dir, "project.json", "projects", "show", project)
+
+	// 7. Per-workspace details (name, description).
+	wsDetailsDir := filepath.Join(dir, "workspace_details")
+	if err := os.MkdirAll(wsDetailsDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace_details: %v", err)
+	}
+	for _, ws := range workspaces {
+		wsUUID, ok := ws["uuid"].(string)
+		if !ok || wsUUID == "" {
+			continue
+		}
+		wsName, _ := ws["name"].(string)
+		t.Run("workspace_details/"+wsName, func(t *testing.T) {
+			captureJSON(t, kh, wsDetailsDir, wsUUID+".json",
+				"workspaces", "show", wsUUID,
+				"--project", project,
+			)
+		})
+	}
+
+	// 8. License records (org-level, no project/workspace scope).
+	captureJSON(t, kh, dir, "licenses.json", "license", "ls", "-o", "json")
+
 	t.Logf("snapshot written to %s (%d states, %d workspaces)", dir, len(states), len(workspaces))
 }

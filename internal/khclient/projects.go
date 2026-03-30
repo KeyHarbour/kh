@@ -144,6 +144,32 @@ func isAlphanumeric(s string) bool {
 	return true
 }
 
+// UpdateWorkspace updates the name and/or description of an existing workspace.
+func (c *Client) UpdateWorkspace(ctx context.Context, workspaceUUID string, req UpdateWorkspaceRequest) error {
+	if workspaceUUID == "" {
+		return APIError{StatusCode: http.StatusBadRequest, Message: "workspace uuid is required"}
+	}
+	resp, err := c.do(ctx, http.MethodPatch, "/workspaces/"+url.PathEscape(workspaceUUID), nil, req, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return expectStatus("update workspace", resp, http.StatusAccepted)
+}
+
+// DeleteWorkspace permanently deletes a workspace.
+func (c *Client) DeleteWorkspace(ctx context.Context, workspaceUUID string) error {
+	if workspaceUUID == "" {
+		return APIError{StatusCode: http.StatusBadRequest, Message: "workspace uuid is required"}
+	}
+	resp, err := c.do(ctx, http.MethodDelete, "/workspaces/"+url.PathEscape(workspaceUUID), nil, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return expectStatus("delete workspace", resp, http.StatusNoContent)
+}
+
 // GetOrCreateWorkspace gets a workspace by name, or creates it if it doesn't exist
 func (c *Client) GetOrCreateWorkspace(ctx context.Context, projectUUID, workspaceName string) (Workspace, bool, error) {
 	// First, list workspaces to find by name

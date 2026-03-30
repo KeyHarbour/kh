@@ -94,28 +94,37 @@ Capture a machine-readable picture of the system **before** any backend change (
 
 | Artifact | Command | Stored as |
 |----------|---------|-----------|
-| Auth identity | `kh whoami -o json` | `whoami.json` |
+| Auth identity | `kh whoami` | `whoami.txt` |
 | State list | `kh state ls -o json` | `states.json` |
-| Per-state metadata | `kh state show <id> --raw` | `states/<id>.json` |
-| Statefiles last | `kh statefiles last -o json` for each workspace | `statefiles/<workspace>.json` |
-| Lock status | inferred from state metadata | included in `states/<id>.json` |
-| API version / health | `GET /v1/health` (if available) | `health.json` |
+| Per-state content | `kh state show <id> --raw` | `states/<id>.json` |
+| Workspace list | `kh workspaces ls -o json` | `workspaces.json` |
+| Per-workspace details | `kh workspaces show <uuid>` | `workspace_details/<uuid>.json` |
+| Statefiles per workspace | `kh statefiles ls -o json` | `statefiles/<uuid>.json` |
+| Key/value pairs per workspace | `kh kv ls -o json` | `keyvalues/<uuid>.json` |
+| Project detail | `kh projects show <uuid>` | `project.json` |
 
 ### Snapshot directory layout
 
 ```
 testdata/snapshots/
   2026-02-20T14-05-00Z/        ← timestamped run
-    manifest.json              ← run metadata (version, timestamp, env hash)
-    whoami.json
-    health.json
+    manifest.json              ← run metadata (timestamp, endpoint)
+    whoami.txt
     states.json
     states/
       <uuid-1>.json
       <uuid-2>.json
+    workspaces.json
+    workspace_details/
+      <ws-uuid-1>.json
+      <ws-uuid-2>.json
     statefiles/
-      <workspace-1>.json
-      <workspace-2>.json
+      <ws-uuid-1>.json
+      <ws-uuid-2>.json
+    keyvalues/
+      <ws-uuid-1>.json
+      <ws-uuid-2>.json
+    project.json
   latest -> 2026-02-20T14-05-00Z/   ← symlink updated after each snapshot
 ```
 
@@ -182,13 +191,15 @@ After a backend change, run the same queries and diff the results against the st
 
 | Check | Pass condition |
 |-------|---------------|
-| `whoami` identity | Same `login` / `org` |
-| State IDs | No IDs disappeared from `state ls` |
-| State content | SHA-256 of each `state show --raw` matches snapshot |
-| Statefiles last | Same `serial`, `lineage`, `terraform_version` |
-| Lock status | Same locked/unlocked state per workspace |
-| Exit codes | All commands exit 0 |
-| HTTP status codes | No unexpected 4xx / 5xx in `-debug` output |
+| `Authentication` | Same org as snapshot |
+| `ProjectDetail` | Project name unchanged; no environments removed |
+| `WorkspaceDetailStability` | Name and description unchanged per workspace |
+| `WorkspaceListNoDeletions` | No workspace UUIDs disappeared |
+| `KeyValueContentIntegrity` | No keys deleted; non-private/non-encrypted values unchanged |
+| `KeyValueCountPerWorkspace` | Key count did not decrease per workspace |
+| `StatfileCountPerWorkspace` | Statefile count did not decrease per workspace |
+| `StateListNoDeletions` | No state IDs disappeared |
+| `StateContentIntegrity` | SHA-256 of each `state show --raw` matches snapshot |
 
 ### Regression levels
 
@@ -283,13 +294,16 @@ Run non-destructive health checks at any time — after an incident, before a re
 | Check | Description |
 |-------|-------------|
 | **Connectivity** | TCP reachability + TLS handshake to `KH_ENDPOINT` |
-| **Authentication** | `kh whoami` returns 200 with correct identity |
+| **Authentication** | `kh whoami` returns correct identity |
 | **State listing** | `kh state ls` succeeds and returns valid JSON |
-| **State retrieval** | `kh state show <id>` for a known test fixture |
 | **Lock round-trip** | Lock → unlock a test state (if `KH_DIAG_STATE_ID` is set) |
-| **Latency** | Each command measured; warn if >2 s |
-| **Exit codes** | All commands exit 0 without `KH_DEBUG` errors |
-| **Backend version** | Compare `GET /v1/health` version against a minimum expected version |
+| **Workspace listing** | `kh workspaces ls` returns valid JSON |
+| **Workspace round-trip** | Create → show → update → delete a temporary workspace |
+| **KV listing** | `kh kv ls` returns valid JSON |
+| **KV round-trip** | Set → get → update → delete a temporary key |
+| **KV encryption round-trip** | Encrypted set → raw get (ciphertext) → decrypted get → wrong key error |
+| **License listing** | `kh license ls` returns valid JSON |
+| **License round-trip** | Create → show → update → delete a temporary license record |
 
 ### Running
 

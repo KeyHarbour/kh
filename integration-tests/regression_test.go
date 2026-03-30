@@ -116,6 +116,199 @@ func TestRegression(t *testing.T) {
 		t.Logf("snapshot: %d workspaces, live: %d workspaces", len(snapWorkspaces), len(liveWorkspaces))
 	})
 
+	t.Run("LicenseListNoDeletions", func(t *testing.T) {
+		snapPath := filepath.Join(snapDir, "licenses.json")
+		if _, err := os.Stat(snapPath); os.IsNotExist(err) {
+			t.Skip("no licenses.json in snapshot — re-run TestSnapshot to capture licenses")
+		}
+		snapLicenses := loadJSON[[]map[string]any](t, snapPath)
+
+		liveOut := runOK(t, kh, "license", "ls", "-o", "json")
+		var liveLicenses []map[string]any
+		if err := json.Unmarshal(liveOut, &liveLicenses); err != nil {
+			t.Fatalf("license ls returned invalid JSON: %v\noutput: %s", err, liveOut)
+		}
+
+		liveByUUID := make(map[string]bool, len(liveLicenses))
+		for _, l := range liveLicenses {
+			if uuid, _ := l["uuid"].(string); uuid != "" {
+				liveByUUID[uuid] = true
+			}
+		}
+		for _, l := range snapLicenses {
+			uuid, _ := l["uuid"].(string)
+			name, _ := l["name"].(string)
+			if uuid != "" && !liveByUUID[uuid] {
+				t.Errorf("license %q (%s) was present at snapshot time but is missing from live system", name, uuid)
+			}
+		}
+		t.Logf("snapshot: %d licenses, live: %d licenses", len(snapLicenses), len(liveLicenses))
+	})
+
+	t.Run("ProjectDetail", func(t *testing.T) {
+		snapPath := filepath.Join(snapDir, "project.json")
+		if _, err := os.Stat(snapPath); os.IsNotExist(err) {
+			t.Skip("no project.json in snapshot — re-run TestSnapshot to capture project detail")
+		}
+		snap := loadJSON[map[string]any](t, snapPath)
+
+		liveOut := runOK(t, kh, "projects", "show", project)
+		var live map[string]any
+		if err := json.Unmarshal(liveOut, &live); err != nil {
+			t.Fatalf("projects show returned invalid JSON: %v\noutput: %s", err, liveOut)
+		}
+
+		assertField(t, snap, live, "name")
+
+		snapEnvs, _ := snap["environment_names"].([]any)
+		liveEnvs, _ := live["environment_names"].([]any)
+		if len(liveEnvs) < len(snapEnvs) {
+			t.Errorf("environment_names shrank: snapshot=%d live=%d", len(snapEnvs), len(liveEnvs))
+		}
+		t.Logf("project %q: name=%q environments=%d", project, live["name"], len(liveEnvs))
+	})
+
+	t.Run("WorkspaceDetailStability", func(t *testing.T) {
+		wsDetailsDir := filepath.Join(snapDir, "workspace_details")
+		if _, err := os.Stat(wsDetailsDir); os.IsNotExist(err) {
+			t.Skip("no workspace_details snapshots found — re-run TestSnapshot to capture workspace details")
+		}
+
+		entries, err := os.ReadDir(wsDetailsDir)
+		if err != nil {
+			t.Fatalf("read workspace_details dir: %v", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			wsUUID := strings.TrimSuffix(e.Name(), ".json")
+			t.Run(wsUUID, func(t *testing.T) {
+				snapPayload := loadJSON[map[string]any](t, filepath.Join(wsDetailsDir, e.Name()))
+				snapWS, _ := snapPayload["workspace"].(map[string]any)
+				if snapWS == nil {
+					t.Skip("no workspace key in snapshot file")
+				}
+
+				liveOut := runOK(t, kh, "workspaces", "show", wsUUID, "--project", project)
+				var livePayload map[string]any
+				if err := json.Unmarshal(liveOut, &livePayload); err != nil {
+					t.Fatalf("workspaces show returned invalid JSON: %v\noutput: %s", err, liveOut)
+				}
+				liveWS, _ := livePayload["workspace"].(map[string]any)
+				if liveWS == nil {
+					t.Fatalf("no workspace key in live response: %s", liveOut)
+				}
+
+				assertField(t, snapWS, liveWS, "name")
+				assertField(t, snapWS, liveWS, "description")
+				t.Logf("workspace %s: name=%q description=%q", wsUUID, liveWS["name"], liveWS["description"])
+			})
+		}
+	})
+
+	t.Run("KeyValueContentIntegrity", func(t *testing.T) {
+		kvSnapDir := filepath.Join(snapDir, "keyvalues")
+		if _, err := os.Stat(kvSnapDir); os.IsNotExist(err) {
+			t.Skip("no keyvalues snapshots found — re-run TestSnapshot to capture key/values")
+		}
+
+		entries, err := os.ReadDir(kvSnapDir)
+		if err != nil {
+			t.Fatalf("read keyvalues dir: %v", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			wsUUID := strings.TrimSuffix(e.Name(), ".json")
+			t.Run(wsUUID, func(t *testing.T) {
+				snapKVs := loadJSON[[]map[string]any](t, filepath.Join(kvSnapDir, e.Name()))
+
+				liveOut := runOK(t, kh, "kv", "ls",
+					"--project", project,
+					"--workspace", wsUUID,
+					"-o", "json",
+				)
+				var liveKVs []map[string]any
+				if err := json.Unmarshal(liveOut, &liveKVs); err != nil {
+					t.Fatalf("kv ls returned invalid JSON: %v\noutput: %s", err, liveOut)
+				}
+
+				liveByKey := make(map[string]map[string]any, len(liveKVs))
+				for _, kv := range liveKVs {
+					if k, _ := kv["key"].(string); k != "" {
+						liveByKey[k] = kv
+					}
+				}
+				for _, snapKV := range snapKVs {
+					k, _ := snapKV["key"].(string)
+					if k == "" {
+						continue
+					}
+					liveKV, ok := liveByKey[k]
+					if !ok {
+						t.Errorf("key %q was present at snapshot time but is missing from live system", k)
+						continue
+					}
+					// Skip value comparison for private or encrypted values.
+					private, _ := snapKV["private"].(bool)
+					snapVal, _ := snapKV["value"].(string)
+					if !private && !strings.HasPrefix(snapVal, "enc:v1:") {
+						assertField(t, snapKV, liveKV, "value")
+					}
+				}
+				t.Logf("workspace %s: %d keys checked (snapshot had %d)", wsUUID, len(liveKVs), len(snapKVs))
+			})
+		}
+	})
+
+	t.Run("KeyValueCountPerWorkspace", func(t *testing.T) {
+		kvSnapDir := filepath.Join(snapDir, "keyvalues")
+		if _, err := os.Stat(kvSnapDir); os.IsNotExist(err) {
+			t.Skip("no keyvalues snapshots found — re-run TestSnapshot to capture key/values")
+		}
+
+		entries, err := os.ReadDir(kvSnapDir)
+		if err != nil {
+			t.Fatalf("read keyvalues dir: %v", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			wsUUID := strings.TrimSuffix(e.Name(), ".json")
+			t.Run(wsUUID, func(t *testing.T) {
+				snapKVs := loadJSON[[]map[string]any](t, filepath.Join(kvSnapDir, e.Name()))
+
+				liveOut := runOK(t, kh, "kv", "ls",
+					"--project", project,
+					"--workspace", wsUUID,
+					"-o", "json",
+				)
+				var liveKVs []map[string]any
+				if err := json.Unmarshal(liveOut, &liveKVs); err != nil {
+					t.Fatalf("kv ls returned invalid JSON: %v\noutput: %s", err, liveOut)
+				}
+
+				// Build a set of live keys for deletion detection.
+				liveKeys := make(map[string]bool, len(liveKVs))
+				for _, kv := range liveKVs {
+					if k, _ := kv["key"].(string); k != "" {
+						liveKeys[k] = true
+					}
+				}
+				for _, kv := range snapKVs {
+					k, _ := kv["key"].(string)
+					if k != "" && !liveKeys[k] {
+						t.Errorf("workspace %s: key %q was present at snapshot time but is missing from live system", wsUUID, k)
+					}
+				}
+				t.Logf("workspace %s: %d keys (snapshot had %d)", wsUUID, len(liveKVs), len(snapKVs))
+			})
+		}
+	})
+
 	t.Run("StatfileCountPerWorkspace", func(t *testing.T) {
 		sfSnapDir := filepath.Join(snapDir, "statefiles")
 		if _, err := os.Stat(sfSnapDir); os.IsNotExist(err) {
