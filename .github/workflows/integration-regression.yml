@@ -100,7 +100,7 @@ jobs:
           KH_PROJECT: ${{ vars.KH_PROJECT }}
           KH_ORG: ${{ vars.KH_ORG }}
           KH_TEST_MODE: regression
-          KH_SNAPSHOT_DIR: ./integration-tests/testdata/snapshots/latest
+          KH_SNAPSHOT_DIR: ${{ github.workspace }}/integration-tests/testdata/snapshots/latest
           KH_REGRESSION_LEVEL: ${{ inputs.regression_level || 'strict' }}
         run: |
           go test \
