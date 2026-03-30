@@ -1,3 +1,15 @@
+## v0.10.0 (2026-03-30)
+
+### Bug Fixes
+* make TestDecryptBitFlipped deterministic (#5) (a51c465)
+
+### Maintenance
+* remove private files from public repo (#4) (5a9ed73)
+* sync public release v0.9.0 (#3) (3f67b3b)
+* sync public release v0.9.0 (#2) (eff27f3)
+
+---
+
 ## v0.9.0 (2026-03-01)
 
 ### Features

@@ -2,7 +2,11 @@
 # bump-version.sh — Auto-increments VERSION and updates CHANGELOG.md based on
 # conventional commit messages since the last version tag.
 #
-# Bump rules (SemVer):
+# Usage:
+#   ./scripts/bump-version.sh              # auto-detect bump from commits
+#   ./scripts/bump-version.sh 0.10.0       # override version explicitly
+#
+# Bump rules (SemVer, applied when no override is given):
 #   BREAKING CHANGE or type!:  → major
 #   feat:                      → minor
 #   anything else              → patch
@@ -11,6 +15,7 @@
 
 set -euo pipefail
 
+VERSION_OVERRIDE="${1:-}"
 VERSION_FILE="VERSION"
 CHANGELOG_FILE="CHANGELOG.md"
 
@@ -18,16 +23,12 @@ CHANGELOG_FILE="CHANGELOG.md"
 git fetch --tags --force 2>/dev/null || true
 
 # Use the latest git tag as the source of truth for the current version.
-# This is more reliable than the VERSION file because the tag always exists
-# in git history, whereas VERSION might be ahead/behind the actual tags.
 last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
 if [ -n "$last_tag" ]; then
-  # Strip leading 'v' to get a plain semver string (e.g. v0.7.1 → 0.7.1)
   current_version="${last_tag#v}"
   range="${last_tag}..HEAD"
 else
-  # No tags yet — fall back to VERSION file; scan all commits
   current_version=$(cat "$VERSION_FILE" 2>/dev/null || echo "0.1.0")
   range="HEAD"
 fi
@@ -38,7 +39,11 @@ echo "Last tag   : ${last_tag:-"(none)"}"
 echo "Current    : v${current_version}"
 echo "Scanning   : ${range}"
 
-mapfile -t raw_commits < <(git log "$range" --pretty=format:"%s (%h)" 2>/dev/null || true)
+# bash 3.2-compatible replacement for mapfile
+raw_commits=()
+while IFS= read -r line; do
+  [ -n "$line" ] && raw_commits+=("$line")
+done < <(git log "$range" --pretty=format:"%s (%h)" 2>/dev/null || true)
 
 if [ ${#raw_commits[@]} -eq 0 ]; then
   echo "✨ No new commits since v${current_version} — nothing to bump."
@@ -46,23 +51,27 @@ if [ ${#raw_commits[@]} -eq 0 ]; then
 fi
 
 # ── Determine bump type ───────────────────────────────────────────────────────
-bump_type="patch"
-for commit in "${raw_commits[@]}"; do
-  if echo "$commit" | grep -qE "(BREAKING CHANGE|^[a-z]+(\(.*\))?!:)"; then
-    bump_type="major"
-    break
-  elif echo "$commit" | grep -qE "^feat(\(.*\))?:"; then
-    bump_type="minor"
-  fi
-done
+if [ -n "$VERSION_OVERRIDE" ]; then
+  new_version="$VERSION_OVERRIDE"
+  bump_type="manual"
+else
+  bump_type="patch"
+  for commit in "${raw_commits[@]}"; do
+    if echo "$commit" | grep -qE "(BREAKING CHANGE|^[a-z]+(\(.*\))?!:)"; then
+      bump_type="major"
+      break
+    elif echo "$commit" | grep -qE "^feat(\(.*\))?:"; then
+      bump_type="minor"
+    fi
+  done
 
-# ── Calculate new version ─────────────────────────────────────────────────────
-case "$bump_type" in
-  major) major=$((major + 1)); minor=0; patch=0 ;;
-  minor) minor=$((minor + 1)); patch=0 ;;
-  patch) patch=$((patch + 1)) ;;
-esac
-new_version="${major}.${minor}.${patch}"
+  case "$bump_type" in
+    major) major=$((major + 1)); minor=0; patch=0 ;;
+    minor) minor=$((minor + 1)); patch=0 ;;
+    patch) patch=$((patch + 1)) ;;
+  esac
+  new_version="${major}.${minor}.${patch}"
+fi
 
 # ── Sort commits into groups ──────────────────────────────────────────────────
 features=()
@@ -92,7 +101,6 @@ append_group() {
   if [ ${#items[@]} -gt 0 ]; then
     new_content+="### ${title}\n"
     for item in "${items[@]}"; do
-      # Strip conventional commit prefix (e.g. "feat(cli): " or "fix: ")
       clean=$(echo "$item" | sed -E 's/^[a-z]+(\([^)]*\))?!?: //')
       new_content+="* ${clean}\n"
     done
@@ -100,7 +108,6 @@ append_group() {
   fi
 }
 
-# Only expand arrays when they have elements (avoids unbound variable errors)
 append_group "Features"      ${features[@]+"${features[@]}"}
 append_group "Bug Fixes"     ${fixes[@]+"${fixes[@]}"}
 append_group "Maintenance"   ${maintenance[@]+"${maintenance[@]}"}
@@ -112,5 +119,6 @@ echo "$new_version" > "$VERSION_FILE"
 existing_content=$(cat "$CHANGELOG_FILE" 2>/dev/null || echo "")
 printf "%b---\n\n%s" "$new_content" "$existing_content" > "$CHANGELOG_FILE"
 
-echo "⬆️  Version: ${current_version} → ${new_version} (${bump_type^^})"
+bump_type_upper=$(echo "$bump_type" | tr '[:lower:]' '[:upper:]')
+echo "⬆️  Version: ${current_version} → ${new_version} (${bump_type_upper})"
 echo "✅ Changelog written to ${CHANGELOG_FILE}"
