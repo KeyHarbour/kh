@@ -1,6 +1,7 @@
 package kvencrypt
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -73,8 +74,11 @@ func TestDecryptTruncatedCiphertext(t *testing.T) {
 
 func TestDecryptBitFlipped(t *testing.T) {
 	enc, _ := Encrypt(testKey, "secret")
-	// Flip a byte in the base64 payload by replacing a char
-	flipped := enc[:len("enc:v1:")+5] + "X" + enc[len("enc:v1:")+6:]
+	// Corrupt a raw byte before re-encoding so the change is guaranteed
+	// regardless of what character happened to be at that position.
+	data, _ := base64.RawURLEncoding.DecodeString(enc[len("enc:v1:"):])
+	data[5] ^= 0xff
+	flipped := "enc:v1:" + base64.RawURLEncoding.EncodeToString(data)
 	_, err := Decrypt(testKey, flipped)
 	if err == nil {
 		t.Fatal("expected error for bit-flipped ciphertext")
