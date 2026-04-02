@@ -215,10 +215,13 @@ kh kv get MY_API_TOKEN --reveal
 kh kv set MY_KEY my-value --project <uuid> --workspace <uuid>
 kh kv set MY_SECRET s3cr3t --project <uuid> --workspace <uuid> --private
 kh kv set MY_TEMP value --project <uuid> --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
+# Read value from a file (useful for certs, large blobs, or values with special characters)
+kh kv set CERT --value-file ./cert.pem --project <uuid> --workspace <uuid>
 
 # Update an existing key
 kh kv update MY_KEY --value new-value
 kh kv update MY_KEY --value new-value --private false
+kh kv update CERT --value-file ./cert.pem
 
 # Delete a key (--force required to confirm)
 kh kv delete MY_KEY --force
