@@ -45,10 +45,11 @@ type Workspace struct {
 }
 
 type KeyValue struct {
-	Key       string  `json:"key"`
-	Value     string  `json:"value"`
-	ExpiresAt *string `json:"expires_at"`
-	Private   bool    `json:"private"`
+	Key         string  `json:"key"`
+	Value       string  `json:"value"`
+	ExpiresAt   *string `json:"expires_at"`
+	Private     bool    `json:"private"`
+	Environment string  `json:"environment,omitempty"`
 }
 
 type CreateKeyValueRequest struct {

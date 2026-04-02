@@ -29,7 +29,7 @@ func TestSyncCmd_Local_Success(t *testing.T) {
 	mux := http.NewServeMux()
 
 	// GET Project
-	mux.HandleFunc("/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(khclient.Project{
 			UUID: projectUUID,
@@ -39,7 +39,7 @@ func TestSyncCmd_Local_Success(t *testing.T) {
 
 	// Resolve Workspace (GET workspaces list - simulating resolve by name)
 	// The client might use ListWorkspaces if reference is a name.
-	mux.HandleFunc(fmt.Sprintf("/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(fmt.Sprintf("/api/v2/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]khclient.Workspace{{
 			UUID: workspaceUUID,
@@ -49,7 +49,7 @@ func TestSyncCmd_Local_Success(t *testing.T) {
 
 	// Create Statefile
 	// POST /projects/{pid}/workspaces/{wid}/statefiles?env=default
-	uploadPath := fmt.Sprintf("/workspaces/%s/statefiles", workspaceUUID)
+	uploadPath := fmt.Sprintf("/api/v2/workspaces/%s/statefiles", workspaceUUID)
 	mux.HandleFunc(uploadPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "invalid method", http.StatusMethodNotAllowed)
@@ -150,7 +150,7 @@ func TestSyncCmd_TFC_Success(t *testing.T) {
 	khMux := http.NewServeMux()
 
 	// GET Project
-	khMux.HandleFunc("/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
+	khMux.HandleFunc("/api/v2/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(khclient.Project{
 			UUID: projectUUID,
@@ -159,7 +159,7 @@ func TestSyncCmd_TFC_Success(t *testing.T) {
 	})
 
 	// Resolve Workspace (GET workspaces list - simulating resolve by name)
-	khMux.HandleFunc(fmt.Sprintf("/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
+	khMux.HandleFunc(fmt.Sprintf("/api/v2/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// TFC reader sets the "key" to the workspace name "my-ws"
 		// The sync command uses that key as the default target workspace name if --workspace is not provided
@@ -171,7 +171,7 @@ func TestSyncCmd_TFC_Success(t *testing.T) {
 	})
 
 	// Create Statefile
-	uploadPath := fmt.Sprintf("/workspaces/%s/statefiles", workspaceUUID)
+	uploadPath := fmt.Sprintf("/api/v2/workspaces/%s/statefiles", workspaceUUID)
 	khMux.HandleFunc(uploadPath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "invalid method", http.StatusMethodNotAllowed)

@@ -146,7 +146,14 @@ Examples:
 				}
 				return nil
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(item)
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(item)
+			}
+			return printer.Table(
+				[]string{"UUID", "PUBLISHED AT", "BYTES"},
+				[][]string{{item.UUID, item.PublishedAt.Format(time.RFC3339), fmt.Sprint(len(item.Content))}},
+			)
 		},
 	}
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw statefile content")
@@ -188,7 +195,14 @@ Examples:
 				}
 				return nil
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(item)
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(item)
+			}
+			return printer.Table(
+				[]string{"UUID", "PUBLISHED AT", "BYTES"},
+				[][]string{{item.UUID, item.PublishedAt.Format(time.RFC3339), fmt.Sprint(len(item.Content))}},
+			)
 		},
 	}
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw statefile content")
@@ -243,15 +257,16 @@ Examples:
 			if err != nil {
 				return err
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(struct {
-				Action string `json:"action"`
-				Status string `json:"status"`
-				Bytes  int    `json:"bytes"`
-			}{
-				Action: "push",
-				Status: resp.Status,
-				Bytes:  len(data),
-			})
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(struct {
+					Action string `json:"action"`
+					Status string `json:"status"`
+					Bytes  int    `json:"bytes"`
+				}{Action: "push", Status: resp.Status, Bytes: len(data)})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Statefile pushed (%d bytes)\n", len(data))
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to a Terraform state file")
