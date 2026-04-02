@@ -234,7 +234,14 @@ func newWorkspacesShowCmd(opts *workspaceCmdOpts) *cobra.Command {
 				Project   khclient.Project   `json:"project"`
 				Workspace khclient.Workspace `json:"workspace"`
 			}{Project: project, Workspace: workspace}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(payload)
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(payload)
+			}
+			return printer.Table(
+				[]string{"UUID", "NAME", "DESCRIPTION", "PROJECT"},
+				[][]string{{workspace.UUID, workspace.Name, orDash(workspace.Description), project.Name}},
+			)
 		},
 	}
 	return cmd

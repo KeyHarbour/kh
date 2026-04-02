@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -20,6 +21,16 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{Concurrency: 4}
+}
+
+// normalizeEndpoint ensures the endpoint always ends with /api/v2,
+// regardless of whether the user supplied it or not.
+func normalizeEndpoint(e string) string {
+	e = strings.TrimRight(e, "/")
+	if strings.HasSuffix(e, "/api/v2") {
+		return e
+	}
+	return e + "/api/v2"
 }
 
 func configDir() (string, error) {
@@ -82,6 +93,9 @@ func LoadWithEnv() (Config, error) {
 	// Apply environment variable overrides
 	if v := os.Getenv("KH_ENDPOINT"); v != "" {
 		cfg.Endpoint = v
+	}
+	if cfg.Endpoint != "" {
+		cfg.Endpoint = normalizeEndpoint(cfg.Endpoint)
 	}
 	if v := os.Getenv("KH_TOKEN"); v != "" {
 		cfg.Token = v

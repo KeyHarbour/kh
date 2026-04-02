@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"kh/internal/config"
@@ -16,9 +18,9 @@ import (
 )
 
 type kvCmdOpts struct {
-	project       string
-	workspace     string
-	encryptionKey string
+	project           string
+	workspace         string
+	encryptionKeyFile string
 }
 
 func newKVCmd() *cobra.Command {
@@ -36,7 +38,7 @@ and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).`,
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
-	cmd.PersistentFlags().StringVar(&opts.encryptionKey, "encryption-key", "", "Hex-encoded 256-bit AES key for client-side encryption (or KH_ENCRYPTION_KEY)")
+	cmd.PersistentFlags().StringVar(&opts.encryptionKeyFile, "encryption-key-file", "", "Path to a file containing the hex-encoded 256-bit AES key (or KH_ENCRYPTION_KEY_FILE)")
 
 	cmd.AddCommand(newKVListCmd(opts))
 	cmd.AddCommand(newKVGetCmd(opts))
@@ -75,13 +77,18 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 }
 
 func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
-	raw := o.encryptionKey
-	if raw == "" {
-		raw = config.FromEnvOr(cfg, "KH_ENCRYPTION_KEY", "")
+	keyFile := o.encryptionKeyFile
+	if keyFile == "" {
+		keyFile = os.Getenv("KH_ENCRYPTION_KEY_FILE")
 	}
-	if raw == "" {
+	if keyFile == "" {
 		return nil, nil // encryption not requested
 	}
+	data, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, exitcodes.With(exitcodes.ValidationError, fmt.Errorf("cannot read encryption key file: %w", err))
+	}
+	raw := strings.TrimSpace(string(data))
 	key, err := kvencrypt.ParseKey(raw)
 	if err != nil {
 		return nil, exitcodes.With(exitcodes.ValidationError, err)
@@ -130,7 +137,7 @@ Examples:
 				return printer.JSON(items)
 			}
 
-			headers := []string{"KEY", "VALUE", "PRIVATE", "EXPIRES AT"}
+			headers := []string{"KEY", "VALUE", "PRIVATE", "ENVIRONMENT", "EXPIRES AT"}
 			rows := make([][]string, 0, len(items))
 			for _, kv := range items {
 				exp := "-"
@@ -151,7 +158,7 @@ Examples:
 				case kv.Private:
 					val = "***"
 				}
-				rows = append(rows, []string{kv.Key, val, fmt.Sprintf("%v", kv.Private), exp})
+				rows = append(rows, []string{kv.Key, val, fmt.Sprintf("%v", kv.Private), orDash(kv.Environment), exp})
 			}
 			return printer.Table(headers, rows)
 		},
@@ -210,7 +217,7 @@ Examples:
 				}
 				val = plain
 			case kvencrypt.IsEncrypted(val):
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key to decrypt\n")
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key-file or KH_ENCRYPTION_KEY_FILE to decrypt\n")
 			case kv.Private && !reveal:
 				val = "*** (use --reveal to show)"
 			}

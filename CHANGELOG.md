@@ -1,24 +1,19 @@
-## v1.0.0 (2026-03-30)
+## v1.1.0 (2026-04-02)
 
 ### Features
-* add workspace create, update, and delete commands
-* add client-side AES-256-GCM encryption for kv values
-* add kh license command for software license management
-
-### Maintenance
-* remove private files from public repo
-
----
-
-## v0.10.0 (2026-03-30)
+* add workspace create, update, and delete commands (9a4b01d)
+* add client-side AES-256-GCM encryption for kv values via `--encryption-key-file` (c599f6f)
+* add `kh license` command for software license management (c3f91cf)
+* normalize `KH_ENDPOINT` — no need to append `/api/v2` manually (3904693)
+* add `--gen-backend` flag to `kh sync` — generates `kh_backend.tf.sample` after migration (a62ed0f)
 
 ### Bug Fixes
-* make TestDecryptBitFlipped deterministic (#5) (a51c465)
+* use human-readable table output by default; JSON only with `-o json` (173a972)
+* replace `--encryption-key` flag with `--encryption-key-file` to avoid shell history exposure (0636b00)
 
 ### Maintenance
-* remove private files from public repo (#4) (5a9ed73)
-* sync public release v0.9.0 (#3) (3f67b3b)
-* sync public release v0.9.0 (#2) (eff27f3)
+* add integration test workflow for pull requests (b42cc1a)
+* remove export and import commands (147f0d5)
 
 ---
 

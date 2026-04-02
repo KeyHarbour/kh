@@ -22,11 +22,11 @@ func newWorkspacesTestServer(t *testing.T, wsHandler http.HandlerFunc) *httptest
 	}
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"uuid": "proj-uuid", "name": "my-project"})
 	})
-	mux.HandleFunc("/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]map[string]any{{"uuid": "ws-uuid", "name": "my-workspace"}})
@@ -34,7 +34,7 @@ func newWorkspacesTestServer(t *testing.T, wsHandler http.HandlerFunc) *httptest
 		}
 		wsHandler(w, r)
 	})
-	mux.HandleFunc("/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{"uuid": "ws-uuid", "name": "my-workspace", "description": "old-desc"})
@@ -42,7 +42,7 @@ func newWorkspacesTestServer(t *testing.T, wsHandler http.HandlerFunc) *httptest
 		}
 		wsHandler(w, r)
 	})
-	mux.HandleFunc("/workspaces/", wsHandler)
+	mux.HandleFunc("/api/v2/workspaces/", wsHandler)
 
 	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
 	srv.Start()

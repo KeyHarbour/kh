@@ -19,8 +19,8 @@ func newLicenseTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Serv
 		t.Fatalf("listen: %v", err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/licence/applications/", handler)
-	mux.HandleFunc("/licence/applications", handler)
+	mux.HandleFunc("/api/v2/licence/applications/", handler)
+	mux.HandleFunc("/api/v2/licence/applications", handler)
 
 	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
 	srv.Start()
@@ -45,7 +45,7 @@ func runLicenseCmd(t *testing.T, srv *httptest.Server, args ...string) (string, 
 
 func TestLicenseList_TableOutput(t *testing.T) {
 	srv := newLicenseTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/licence/applications" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/licence/applications" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")

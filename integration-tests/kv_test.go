@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,7 +175,7 @@ func TestKVRoundTrip(t *testing.T) {
 	})
 }
 
-// TestKVEncryptionRoundTrip verifies that a value set with --encryption-key is
+// TestKVEncryptionRoundTrip verifies that a value set with --encryption-key-file is
 // stored as ciphertext on the server and transparently decrypted on retrieval.
 // It also verifies that reading without the key shows a warning, not the plaintext.
 //
@@ -190,12 +191,16 @@ func TestKVEncryptionRoundTrip(t *testing.T) {
 	project := os.Getenv("KH_PROJECT")
 	workspace := os.Getenv("KH_WORKSPACE")
 
-	// Generate a fresh AES-256 key via openssl.
+	// Generate a fresh AES-256 key via openssl and write it to a temp file.
 	keyOut, err := exec.Command("openssl", "rand", "-hex", "32").Output()
 	if err != nil {
 		t.Skipf("openssl not available, skipping encryption test: %v", err)
 	}
 	encKey := strings.TrimSpace(string(keyOut))
+	keyFile := filepath.Join(t.TempDir(), "enc.key")
+	if err := os.WriteFile(keyFile, []byte(encKey), 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
 
 	key := fmt.Sprintf("KH_CLI_ENC_TEST_%d", time.Now().UnixMilli())
 
@@ -215,7 +220,7 @@ func TestKVEncryptionRoundTrip(t *testing.T) {
 			"kv", "set", key, "my-secret",
 			"--project", project,
 			"--workspace", workspace,
-			"--encryption-key", encKey,
+			"--encryption-key-file", keyFile,
 		)
 		if !strings.Contains(string(out), key) {
 			t.Fatalf("expected key name in output, got: %s", out)
@@ -239,7 +244,7 @@ func TestKVEncryptionRoundTrip(t *testing.T) {
 			"kv", "get", key,
 			"--project", project,
 			"--workspace", workspace,
-			"--encryption-key", encKey,
+			"--encryption-key-file", keyFile,
 		)
 		if !strings.Contains(string(out), "my-secret") {
 			t.Fatalf("expected decrypted value in output, got: %s", out)
@@ -248,11 +253,13 @@ func TestKVEncryptionRoundTrip(t *testing.T) {
 	})
 
 	t.Run("WrongKeyErrors", func(t *testing.T) {
-		wrongKey, _ := exec.Command("openssl", "rand", "-hex", "32").Output()
+		wrongKeyOut, _ := exec.Command("openssl", "rand", "-hex", "32").Output()
+		wrongKeyFile := filepath.Join(t.TempDir(), "wrong.key")
+		_ = os.WriteFile(wrongKeyFile, []byte(strings.TrimSpace(string(wrongKeyOut))), 0o600)
 		cmd := exec.Command(kh, "kv", "get", key,
 			"--project", project,
 			"--workspace", workspace,
-			"--encryption-key", strings.TrimSpace(string(wrongKey)),
+			"--encryption-key-file", wrongKeyFile,
 		)
 		cmd.Env = os.Environ()
 		out, err := cmd.CombinedOutput()

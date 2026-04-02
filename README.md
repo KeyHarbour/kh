@@ -229,29 +229,29 @@ kh kv delete MY_KEY --force
 Values can be encrypted before being sent to the server using AES-256-GCM. The key never leaves the client — the server stores opaque ciphertext.
 
 ```zsh
-# Generate a key (save this securely)
-openssl rand -hex 32
+# Generate a key and save it to a file (chmod 600 keeps it private)
+openssl rand -hex 32 > ~/.kh/enc.key && chmod 600 ~/.kh/enc.key
 
 # Store an encrypted value
 kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid> \
-  --encryption-key <64-hex-chars>
+  --encryption-key-file ~/.kh/enc.key
 
 # Retrieve and decrypt
-kh kv get DB_PASSWORD --encryption-key <64-hex-chars>
+kh kv get DB_PASSWORD --encryption-key-file ~/.kh/enc.key
 
-# Use the environment variable instead of the flag (recommended for CI)
-export KH_ENCRYPTION_KEY=<64-hex-chars>
+# Use the environment variable to point at the key file (recommended for CI)
+export KH_ENCRYPTION_KEY_FILE=~/.kh/enc.key
 kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid>
 kh kv get DB_PASSWORD
 ```
 
-Encrypted values are stored with an `enc:v1:` prefix, making their status auditable. Values without the prefix are treated as plaintext regardless of whether `--encryption-key` is set — existing unencrypted values continue to work.
+Encrypted values are stored with an `enc:v1:` prefix, making their status auditable. Values without the prefix are treated as plaintext regardless of whether `--encryption-key-file` is set — existing unencrypted values continue to work.
 
 **Notes:**
 - `--project` and `--workspace` accept a UUID or name; `KH_PROJECT` and `KH_WORKSPACE` env vars are also respected.
 - Private values are masked as `***` in `ls` and `get` output unless `--reveal` is passed.
 - All commands support `-o json` for machine-readable output.
-- Passing `--encryption-key` on the command line risks exposure in shell history; `KH_ENCRYPTION_KEY` is preferred.
+- The key is read from a file to avoid exposure in shell history and process listings.
 
 ### License Management (`license`)
 

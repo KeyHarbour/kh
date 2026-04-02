@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -25,24 +26,24 @@ func newKVTestServer(t *testing.T, kvHandler http.HandlerFunc) *httptest.Server 
 	mux := http.NewServeMux()
 
 	// project resolution
-	mux.HandleFunc("/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/projects/proj-uuid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"uuid": "proj-uuid", "name": "my-project"})
 	})
 	// workspace resolution (list, for name-based lookup)
-	mux.HandleFunc("/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]map[string]any{{"uuid": "ws-uuid", "name": "my-workspace"}})
 	})
 	// workspace detail
-	mux.HandleFunc("/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"uuid": "ws-uuid", "name": "my-workspace"})
 	})
 	// kv collection endpoint (ls, set)
-	mux.HandleFunc("/workspaces/ws-uuid/keyvalues", kvHandler)
+	mux.HandleFunc("/api/v2/workspaces/ws-uuid/keyvalues", kvHandler)
 	// kv individual key endpoint (get, update, delete)
-	mux.HandleFunc("/keyvalues/", kvHandler)
+	mux.HandleFunc("/api/v2/keyvalues/", kvHandler)
 
 	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
 	srv.Start()
@@ -205,9 +206,19 @@ func TestKVDelete_WithForce(t *testing.T) {
 	}
 }
 
-// testEncKey is a valid 64-char hex key for encryption tests.
-const testEncKey = "a3f12e849c47b011235678abcdef01234567" +
-	"89abcdef01234567" + "89abcdef0123456"
+// writeKeyFile writes a hex key to a temp file and returns its path.
+func writeKeyFile(t *testing.T, hex string) string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "kh-enc-key-*")
+	if err != nil {
+		t.Fatalf("create key file: %v", err)
+	}
+	if _, err := f.WriteString(hex); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+	f.Close()
+	return f.Name()
+}
 
 func TestKVSet_EncryptsValueWhenKeyProvided(t *testing.T) {
 	var bodyBytes []byte
@@ -217,9 +228,10 @@ func TestKVSet_EncryptsValueWhenKeyProvided(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	})
 
+	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "plaintext",
 		"--project", "proj-uuid", "--workspace", "ws-uuid",
-		"--encryption-key", strings.Repeat("ab", 32),
+		"--encryption-key-file", keyFile,
 	)
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
@@ -251,14 +263,15 @@ func TestKVSet_NoEncryptionWithoutKey(t *testing.T) {
 	}
 }
 
-func TestKVSet_InvalidEncryptionKey(t *testing.T) {
+func TestKVSet_InvalidEncryptionKeyFile(t *testing.T) {
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("server should not be called with invalid key")
 	})
 
+	keyFile := writeKeyFile(t, "tooshort")
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "value",
 		"--project", "proj-uuid", "--workspace", "ws-uuid",
-		"--encryption-key", "tooshort",
+		"--encryption-key-file", keyFile,
 	)
 	if err == nil {
 		t.Fatal("expected error for invalid encryption key")
@@ -277,8 +290,9 @@ func TestKVGet_DecryptsWithMatchingKey(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"value": ciphertext, "expires_at": nil, "private": false})
 	})
 
+	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
 	out, err := runKVCmd(t, srv, "get", "MY_KEY",
-		"--encryption-key", strings.Repeat("ab", 32),
+		"--encryption-key-file", keyFile,
 	)
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
@@ -321,8 +335,9 @@ func TestKVGet_ErrorsWithWrongKey(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"value": ciphertext, "expires_at": nil, "private": false})
 	})
 
+	keyFile := writeKeyFile(t, strings.Repeat("cd", 32)) // different key
 	_, err := runKVCmd(t, srv, "get", "MY_KEY",
-		"--encryption-key", strings.Repeat("cd", 32), // different key
+		"--encryption-key-file", keyFile,
 	)
 	if err == nil {
 		t.Fatal("expected error when decrypting with wrong key")
@@ -366,9 +381,10 @@ func TestKVList_DecryptsWithKey(t *testing.T) {
 		})
 	})
 
+	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
 	out, err := runKVCmd(t, srv, "ls",
 		"--project", "proj-uuid", "--workspace", "ws-uuid",
-		"--encryption-key", strings.Repeat("ab", 32),
+		"--encryption-key-file", keyFile,
 	)
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
