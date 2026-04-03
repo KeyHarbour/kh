@@ -51,9 +51,24 @@ func TestStatefileTargetResolveUsesConfigDefaults(t *testing.T) {
 }
 
 func TestStatefileTargetResolveRequiresWorkspace(t *testing.T) {
+	t.Setenv("KH_WORKSPACE", "") // ensure env var is not set
 	target := statefileTarget{}
 	cfg := config.Config{Project: "cfg"}
 	if _, _, err := target.resolve(context.Background(), &fakeResolver{}, cfg); err == nil {
 		t.Fatalf("expected error for missing workspace")
+	}
+}
+
+func TestStatefileTargetResolveUsesKHWorkspace(t *testing.T) {
+	t.Setenv("KH_WORKSPACE", "env-workspace")
+	target := statefileTarget{} // no workspace flag
+	cfg := config.Config{Project: "cfg-project"}
+	res := &fakeResolver{}
+	_, _, err := target.resolve(context.Background(), res, cfg)
+	if err != nil {
+		t.Fatalf("expected nil err with KH_WORKSPACE set: %v", err)
+	}
+	if res.workspaceRef != "env-workspace" {
+		t.Fatalf("expected resolver to receive KH_WORKSPACE, got %q", res.workspaceRef)
 	}
 }

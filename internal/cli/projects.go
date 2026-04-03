@@ -16,7 +16,7 @@ import (
 
 func newProjectsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "projects",
+		Use:   "project",
 		Short: "Inspect Key-Harbour projects",
 	}
 	cmd.AddCommand(newProjectsListCmd())
@@ -32,7 +32,7 @@ func newProjectsListCmd() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Friendly guidance since /v1/projects (index) isn't implemented in the API spec
-			msg := "projects listing is not supported by the server API yet. Use 'kh projects show <uuid>' or 'kh workspaces ls --project <uuid>'."
+			msg := "projects listing is not supported by the server API yet. Use 'kh project show <uuid>' or 'kh workspace ls --project <uuid>'."
 			return exitcodes.With(exitcodes.ValidationError, errors.New(msg))
 		},
 	}

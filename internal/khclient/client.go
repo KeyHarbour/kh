@@ -3,6 +3,7 @@ package khclient
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,11 +42,17 @@ type Client struct {
 }
 
 func New(cfg config.Config) *Client {
+	httpClient := &http.Client{Timeout: defaultTimeout}
+	if cfg.InsecureTLS {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional, gated behind KH_INSECURE=1
+		}
+	}
 	return &Client{
 		Endpoint:  cfg.Endpoint,
 		Token:     cfg.Token,
 		Org:       cfg.Org,
-		HTTP:      &http.Client{Timeout: defaultTimeout},
+		HTTP:      httpClient,
 		Retries:   defaultRetryCount,
 		RetryWait: defaultRetryWait,
 	}

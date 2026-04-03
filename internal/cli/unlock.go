@@ -13,7 +13,7 @@ func newUnlockCmd() *cobra.Command {
 		Short: "Release an advisory lock",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("unlock requires 1 argument: <state-id>. Tip: run 'kh state ls' to list IDs; use --force to override")
+				return fmt.Errorf("unlock requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs; use --force to override")
 			}
 			return nil
 		},

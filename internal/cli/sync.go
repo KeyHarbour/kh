@@ -73,27 +73,27 @@ Destinations (--to): keyharbour, file, http, tfc  (default: keyharbour)
 
 Examples:
   # From local file to KeyHarbour
-  kh sync --from=local --path=./terraform.tfstate --project=<uuid> --workspace=prod
+  kh tf sync --from=local --path=./terraform.tfstate --project=<uuid> --workspace=prod
 
   # From Terraform Cloud to KeyHarbour (auto-create workspace)
-  kh sync --from=tfc --tfc-org=my-org --tfc-workspace=ws-name --project=<uuid> --create-workspace
+  kh tf sync --from=tfc --tfc-org=my-org --tfc-workspace=ws-name --project=<uuid> --create-workspace
 
   # From KeyHarbour to local file
-  kh sync --from=keyharbour --src-project=<uuid> --src-workspace=prod --to=file --out=./backup.tfstate
+  kh tf sync --from=keyharbour --src-project=<uuid> --src-workspace=prod --to=file --out=./backup.tfstate
 
   # From KeyHarbour to Terraform Cloud
-  kh sync --from=keyharbour --src-project=<uuid> --src-workspace=ws1 \
+  kh tf sync --from=keyharbour --src-project=<uuid> --src-workspace=ws1 \
     --to=tfc --dest-tfc-org=my-org --dest-tfc-workspace=ws-name
 
   # From HTTP backend to local file
-  kh sync --from=http --url=https://old-backend.com/state --to=file --out=./imported.tfstate
+  kh tf sync --from=http --url=https://old-backend.com/state --to=file --out=./imported.tfstate
 
   # Between two KeyHarbour workspaces
-  kh sync --from=keyharbour --src-project=<proj1> --src-workspace=ws1 \
+  kh tf sync --from=keyharbour --src-project=<proj1> --src-workspace=ws1 \
     --to=keyharbour --project=<proj2> --workspace=ws2
 
   # Dry-run: preview what would be synced
-  kh sync --from=tfc --tfc-org=my-org --tfc-workspace=ws --project=<uuid> --dry-run
+  kh tf sync --from=tfc --tfc-org=my-org --tfc-workspace=ws --project=<uuid> --dry-run
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadWithEnv()
