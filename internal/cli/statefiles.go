@@ -28,7 +28,10 @@ func (t statefileTarget) resolve(ctx context.Context, resolver referenceResolver
 	}
 	workspaceRef := t.workspace
 	if workspaceRef == "" {
-		return "", "", exitcodes.With(exitcodes.ValidationError, errors.New("--workspace is required"))
+		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
+	}
+	if workspaceRef == "" {
+		return "", "", exitcodes.With(exitcodes.ValidationError, errors.New("--workspace is required (or set KH_WORKSPACE)"))
 	}
 	project, err := resolver.ResolveProject(ctx, projectRef)
 	if err != nil {
@@ -44,7 +47,7 @@ func (t statefileTarget) resolve(ctx context.Context, resolver referenceResolver
 func newStatefilesCmd() *cobra.Command {
 	target := &statefileTarget{}
 	cmd := &cobra.Command{
-		Use:   "statefiles",
+		Use:   "version",
 		Short: "Manage workspace statefile versions",
 		Long: `Manage Terraform statefile versions stored in a KeyHarbour workspace.
 
@@ -76,8 +79,8 @@ Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
 Use --environment to filter by environment name.
 
 Examples:
-  kh statefiles ls --project <uuid> --workspace <uuid>
-  kh statefiles ls --project <uuid> --workspace prod -o json`,
+  kh tf version ls --project <uuid> --workspace <uuid>
+  kh tf version ls --project <uuid> --workspace prod -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -123,8 +126,8 @@ func newStatefilesLastCmd(target *statefileTarget) *cobra.Command {
 Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
 
 Examples:
-  kh statefiles last --project <uuid> --workspace <uuid>
-  kh statefiles last --project <uuid> --workspace prod --raw`,
+  kh tf version last --project <uuid> --workspace <uuid>
+  kh tf version last --project <uuid> --workspace prod --raw`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -168,11 +171,11 @@ func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
 		Long: `Retrieve a specific statefile version by its UUID.
 
 No --project or --workspace flags are required; the UUID uniquely identifies
-the statefile. Use 'kh statefiles ls' to find UUIDs.
+the statefile. Use 'kh tf version ls' to find UUIDs.
 
 Examples:
-  kh statefiles get <uuid>
-  kh statefiles get <uuid> --raw`,
+  kh tf version get <uuid>
+  kh tf version get <uuid> --raw`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles get requires exactly one argument: <uuid>"))
@@ -221,8 +224,8 @@ Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
 Provide the state data via --file or --stdin.
 
 Examples:
-  kh statefiles push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
-  terraform state pull | kh statefiles push --project <uuid> --workspace prod --stdin`,
+  kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
+  terraform state pull | kh tf version push --project <uuid> --workspace prod --stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" && !fromStdin {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("provide --file or --stdin for statefiles push"))
@@ -281,10 +284,10 @@ func newStatefilesDeleteCmd(target *statefileTarget) *cobra.Command {
 		Long: `Delete a specific statefile version by its UUID.
 
 No --project or --workspace flags are required; the UUID uniquely identifies
-the statefile. Use 'kh statefiles ls' to find UUIDs.
+the statefile. Use 'kh tf version ls' to find UUIDs.
 
 Examples:
-  kh statefiles rm <uuid>`,
+  kh tf version rm <uuid>`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles rm requires exactly one argument: <uuid>"))
@@ -317,7 +320,7 @@ Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
 Pass --force to confirm — the command refuses to proceed without it.
 
 Examples:
-  kh statefiles rm-all --project <uuid> --workspace <uuid> --force`,
+  kh tf version rm-all --project <uuid> --workspace <uuid> --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("refusing to delete all statefiles without --force"))

@@ -228,13 +228,11 @@ Notes:
 `, name, module, env, name, env, module)
 }
 
-// Cobra wiring
-func newInitCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Project initialization helpers",
-	}
-	cmd.AddCommand(newInitProjectCmd())
+// newTFInitCmd returns the `kh tf init` command (scaffold a Terraform project).
+func newTFInitCmd() *cobra.Command {
+	cmd := newInitProjectCmd()
+	cmd.Use = "init"
+	cmd.Short = "Scaffold a Terraform project configured for KeyHarbour"
 	return cmd
 }
 

@@ -1,3 +1,44 @@
+## v1.4.0 (2026-04-04)
+
+### Features
+* add licence instances, licensees, and team-members management (31d2eed)
+
+### Bug Fixes
+* fix /license/ URL paths and add unit_cost field (31d2eed)
+
+### Maintenance
+* add unit tests for instances, licensees, team-members (6827fd8)
+* update openapi.yaml with new licence endpoints and unit_cost (1d8f274)
+
+---
+
+## v1.3.0 (2026-04-03)
+
+### Features
+* upsert support in kv update command (4044b5e)
+* add KH_INSECURE env var to skip TLS certificate verification (aa3b91e)
+
+### Bug Fixes
+* respect KH_WORKSPACE and KH_OUTPUT env vars consistently (bcaea59)
+* always apply env var overrides even when config file fails to load (daccb5d)
+
+### Maintenance
+* use singular names for project, workspace, version commands (1ef27cb)
+* move lock, unlock, verify under kh tf state (54e931f)
+* reorganize top-level commands into auth and tf groups (0281bdf)
+
+### Documentation
+* update README for new command structure (f66bc8a)
+
+---
+
+## v1.2.0 (2026-04-02)
+
+### Features
+* add --value-file flag to kv set and update commands (cfd47bf)
+
+---
+
 ## v1.1.0 (2026-04-02)
 
 ### Features

@@ -14,7 +14,7 @@ func newVerifyCmd() *cobra.Command {
 		Short: "Validate a state's integrity",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("verify requires 1 argument: <state-id>. Tip: run 'kh state ls' to list IDs")
+				return fmt.Errorf("verify requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
 			}
 			return nil
 		},

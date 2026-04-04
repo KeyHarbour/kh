@@ -2,21 +2,54 @@
 
 The official command-line interface for KeyHarbour, a secure, self-hosted Terraform backend and state management platform.
 
-The `kh` tool simplifies migrating to a remote backend, managing Terraform state versions, and handling day-to-day operations like state locking and workspace management.
+## Command Structure
 
-## Getting Started
+```text
+kh auth        Authenticate and manage identity
+  login          Save token and endpoint to ~/.kh/config
+  whoami         Show current authenticated identity
 
-### Installation
+kh tf          Terraform state management
+  state          Inspect and manage states
+    ls             List all states
+    show           Show a state's JSON
+    lock           Acquire an advisory lock
+    unlock         Release an advisory lock
+    verify         Validate a state's integrity
+  versions       Manage statefile versions for a workspace
+    ls             List all versions
+    last           Show the latest version
+    get            Download a specific version by UUID
+    push           Upload a new version
+    rm             Delete a specific version
+    rm-all         Delete all versions for a workspace
+  sync           Migrate state between backends
+  init           Scaffold a Terraform project for KeyHarbour
 
-#### From Binary (Recommended)
-Download the latest release for your platform from the [Releases page](#).
+kh project     Inspect Key-Harbour projects
+kh workspace   Inspect and manage project workspaces
+kh kv          Manage key/value pairs in a workspace
+kh config      Manage CLI configuration
+kh license     Manage software license records
+kh completion  Generate shell completion scripts
+```
 
-#### Using Go
+---
+
+## Installation
+
+### From Binary (Recommended)
+
+Download the latest release for your platform from the Releases page.
+
+### Using Go
+
 ```zsh
 go install github.com/key-harbour/kh/cmd/kh@latest
 ```
 
-#### Build from Source
+### Build from Source
+
 ```zsh
 git clone https://github.com/key-harbour/workspace.git
 cd workspace/cli
@@ -24,22 +57,20 @@ make build
 # Binary is available at ./bin/kh
 ```
 
-### Authentication
+---
 
-Authenticate with your KeyHarbour instance:
+## Authentication
 
 ```zsh
 # Save token and endpoint to ~/.kh/config
-kh login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2
+kh auth login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2
 
 # Or use environment variables (recommended for CI)
 export KH_TOKEN="your-api-token"
 export KH_ENDPOINT="https://app.keyharbour.ca/api/v2"
-```
 
-Verify your session:
-```zsh
-kh whoami
+# Verify your session
+kh auth whoami
 ```
 
 ---
@@ -51,7 +82,7 @@ Scaffold a new Terraform project configured for KeyHarbour:
 ```zsh
 mkdir my-infrastructure && cd my-infrastructure
 
-kh init project \
+kh tf init \
   --name "demo-infra" \
   --env "production" \
   --module "aws-vpc" \
@@ -64,234 +95,197 @@ This generates `backend.tf` and `backend.hcl` pre-configured for your project.
 
 ## Command Reference
 
-### Syncing State (`sync`)
+### Syncing State (`kh tf sync`)
 
-The unified `sync` command allows bidirectional state transfer between any backends.
+Bidirectional state transfer between any supported backends.
 
-**Supported Sources** (`--from`): `local`, `http`, `tfc`, `keyharbour`
-**Supported Destinations** (`--to`): `keyharbour`, `file`, `http`, `tfc` (default: `keyharbour`)
-
-#### Common Use Cases
-
-#### 1. Import to KeyHarbour
+**Sources** (`--from`): `local`, `http`, `tfc`, `keyharbour`
+**Destinations** (`--to`): `keyharbour`, `file`, `http`, `tfc` (default: `keyharbour`)
 
 ```zsh
-# From local file
-kh sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
+# From local file to KeyHarbour
+kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
 
-# From HTTP backend
-kh sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <name>
+# From HTTP backend to KeyHarbour
+kh tf sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <name>
 
-# From Terraform Cloud (auto-create workspace if needed)
-kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
-```
+# From Terraform Cloud to KeyHarbour (auto-create workspace if needed)
+kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
 
-#### 2. Export from KeyHarbour
-
-```zsh
-# To local file
-kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
+# From KeyHarbour to local file
+kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
   --to=file --out ./backup.tfstate
 
-# To Terraform Cloud
-kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
+# From KeyHarbour to Terraform Cloud
+kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
   --to=tfc --dest-tfc-org <org> --dest-tfc-workspace <ws>
 
-# To HTTP backend
-kh sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
-  --to=http --dest-url https://other-backend.com/state
-```
-
-#### 3. Copy Between KeyHarbour Workspaces
-
-```zsh
-kh sync --from=keyharbour --src-project <proj1> --src-workspace <ws1> \
+# Between two KeyHarbour workspaces
+kh tf sync --from=keyharbour --src-project <proj1> --src-workspace <ws1> \
   --to=keyharbour --project <proj2> --workspace <ws2> --create-workspace
-```
 
-#### Advanced Options
+# Dry-run: preview what will be synced without writing
+kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --dry-run
 
-```zsh
-# Dry-run mode (preview what will be synced)
-kh sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --dry-run
-
-# Verify checksums during sync
-kh sync --from=local --path ./state.tfstate --verify-checksum
-
-# Control parallelism
-kh sync --from=keyharbour --src-workspace <ws> --to=file --out ./backup.tfstate --concurrency 8
-
-# Lock state during export (KeyHarbour sources only)
-kh sync --from=keyharbour --src-workspace <ws> --to=file --out ./backup.tfstate --lock
-
-# Filter statefiles by environment (KeyHarbour sources only)
-kh sync --from=keyharbour --src-project <uuid> --src-workspace <ws> \
-  --env <env-name> --to=file --out ./backup.tfstate
-
-# Workspace pattern filtering (local sources only)
-kh sync --from=local --path ./terraform.tfstate.d --workspace-pattern "prod.*"
+# Generate backend.hcl after a successful sync
+kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name> \
+  --gen-backend
 ```
 
 **Notes:**
 
-- Workspace names must be alphanumeric only. Names with hyphens (e.g., `my-prod-app`) will be automatically sanitized to `myprodapp` with a warning.
-- Use `{workspace}` and `{key}` placeholders in `--out` paths for `--to=file`.
+- Workspace names must be alphanumeric only. Names with hyphens or underscores are automatically sanitized with a warning.
+- Use `{workspace}` and `{key}` placeholders in `--out` for batch `--to=file` exports.
 
-### Version Control (`statefiles`)
+---
 
-Manage statefile versions for a workspace.
-
-Commands that act on the workspace collection (`ls`, `last`, `push`, `rm-all`) require `--project` and `--workspace`.
-Commands that act on a specific version (`get`, `rm`) only need the statefile UUID — no `--project` or `--workspace` required.
+### State Operations (`kh tf state`)
 
 ```zsh
-# List all statefile versions for a workspace
-kh statefiles ls --project <uuid> --workspace <uuid>
+# List all states
+kh tf state ls
+kh tf state ls --project <uuid> --workspace <name>
 
-# Show the latest statefile (raw Terraform JSON)
-kh statefiles last --project <uuid> --workspace <uuid> --raw
+# Show a state's full Terraform JSON
+kh tf state show <state-id>
+kh tf state show <state-id> --raw
 
-# Get a specific version by UUID
-kh statefiles get <statefile-uuid>
-kh statefiles get <statefile-uuid> --raw
+# Acquire / release an advisory lock
+kh tf state lock <state-id>
+kh tf state unlock <state-id> --force
+
+# Validate a state's integrity
+kh tf state verify <state-id> --full
+```
+
+---
+
+### Statefile Versions (`kh tf version`)
+
+Commands acting on the workspace collection (`ls`, `last`, `push`, `rm-all`) require `--project` and `--workspace`.
+Commands acting on a specific version (`get`, `rm`) only need the statefile UUID.
+
+```zsh
+# List all versions for a workspace
+kh tf version ls --project <uuid> --workspace <uuid>
+
+# Show the latest version
+kh tf version last --project <uuid> --workspace <uuid> --raw
+
+# Download a specific version
+kh tf version get <statefile-uuid>
+kh tf version get <statefile-uuid> --raw
 
 # Upload a new version
-kh statefiles push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
-terraform state pull | kh statefiles push --project <uuid> --workspace prod --stdin
+kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
+terraform state pull | kh tf version push --project <uuid> --workspace prod --stdin
 
-# Delete a specific version by UUID
-kh statefiles rm <statefile-uuid>
+# Delete a specific version
+kh tf version rm <statefile-uuid>
 
 # Delete all versions for a workspace (irreversible)
-kh statefiles rm-all --project <uuid> --workspace <uuid> --force
+kh tf version rm-all --project <uuid> --workspace <uuid> --force
 ```
 
-### Locking (`lock` / `unlock`)
+---
 
-Manage Terraform state locks manually (useful for clearing stuck locks).
+### Workspace Management (`kh workspace`)
 
 ```zsh
-kh lock <state-id>
-kh unlock <state-id> --force
+kh workspace ls --project <uuid>
+kh workspace show <name-or-uuid> --project <uuid>
+kh workspace create <name> --project <uuid>
+kh workspace update <name-or-uuid> --project <uuid> --name <new-name>
+kh workspace delete <name-or-uuid> --project <uuid> --force
 ```
 
-### Workspace Management
+---
+
+### Key/Value Management (`kh kv`)
+
+Commands acting on the workspace collection (`ls`, `set`) require `--workspace` (UUID, or name + `--project`).
+Commands acting on a specific key (`get`, `update`, `delete`) only need the key name.
 
 ```zsh
-# List all workspaces in a project
-kh workspaces ls --project <uuid>
+# List all key/value pairs
+kh kv ls --workspace <uuid>
 
-# Show workspace details
-kh workspaces show <name-or-uuid> --project <uuid>
-
-# Create a new workspace
-kh workspaces create <name> --project <uuid>
-kh workspaces create <name> --project <uuid> --description "my workspace"
-
-# Update a workspace name or description
-kh workspaces update <name-or-uuid> --project <uuid> --name <new-name>
-kh workspaces update <name-or-uuid> --project <uuid> --description "new description"
-
-# Delete a workspace (--force required to confirm)
-kh workspaces delete <name-or-uuid> --project <uuid> --force
-```
-
-### Key/Value Management (`kv`)
-
-Store and retrieve configuration values scoped to a workspace.
-
-Commands that act on the workspace collection (`ls`, `set`) require `--project` and `--workspace`.
-Commands that act on a specific key (`get`, `update`, `delete`) only need the key name — no `--project` or `--workspace` required.
-
-```zsh
-# List all key/value pairs in a workspace
-kh kv ls --project <uuid> --workspace <uuid>
-
-# Get a specific key (--reveal to show private values in plain text)
+# Get a key (--reveal to show private values)
 kh kv get MY_KEY
 kh kv get MY_API_TOKEN --reveal
 
-# Create a new key/value
-kh kv set MY_KEY my-value --project <uuid> --workspace <uuid>
-kh kv set MY_SECRET s3cr3t --project <uuid> --workspace <uuid> --private
-kh kv set MY_TEMP value --project <uuid> --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
+# Create a key
+kh kv set MY_KEY my-value --workspace <uuid>
+kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
+kh kv set MY_TEMP value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
+kh kv set CERT --value-file ./cert.pem --workspace <uuid>
 
-# Update an existing key
+# Update a key
 kh kv update MY_KEY --value new-value
-kh kv update MY_KEY --value new-value --private false
+kh kv update MY_KEY --value-file ./cert.pem
 
-# Delete a key (--force required to confirm)
+# Delete a key
 kh kv delete MY_KEY --force
 ```
 
 #### Client-Side Encryption
 
-Values can be encrypted before being sent to the server using AES-256-GCM. The key never leaves the client — the server stores opaque ciphertext.
+Values can be encrypted with AES-256-GCM before being sent to the server. The key never leaves the client.
 
 ```zsh
-# Generate a key and save it to a file (chmod 600 keeps it private)
+# Generate a key
 openssl rand -hex 32 > ~/.kh/enc.key && chmod 600 ~/.kh/enc.key
 
-# Store an encrypted value
-kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid> \
-  --encryption-key-file ~/.kh/enc.key
-
-# Retrieve and decrypt
+# Store encrypted / retrieve decrypted
+kh kv set DB_PASSWORD s3cr3t --workspace <uuid> --encryption-key-file ~/.kh/enc.key
 kh kv get DB_PASSWORD --encryption-key-file ~/.kh/enc.key
 
-# Use the environment variable to point at the key file (recommended for CI)
+# Or via env var (recommended for CI)
 export KH_ENCRYPTION_KEY_FILE=~/.kh/enc.key
-kh kv set DB_PASSWORD s3cr3t --project <uuid> --workspace <uuid>
-kh kv get DB_PASSWORD
 ```
-
-Encrypted values are stored with an `enc:v1:` prefix, making their status auditable. Values without the prefix are treated as plaintext regardless of whether `--encryption-key-file` is set — existing unencrypted values continue to work.
-
-**Notes:**
-- `--project` and `--workspace` accept a UUID or name; `KH_PROJECT` and `KH_WORKSPACE` env vars are also respected.
-- Private values are masked as `***` in `ls` and `get` output unless `--reveal` is passed.
-- All commands support `-o json` for machine-readable output.
-- The key is read from a file to avoid exposure in shell history and process listings.
-
-### License Management (`license`)
-
-Track software license records for your organisation.
-
-```zsh
-# List all license records
-kh license ls
-kh license ls -o json
-
-# Show details for a specific license
-kh license show <uuid>
-
-# Create a new license record
-kh license create "Terraform Cloud" \
-  --short-name tfc \
-  --owner ops \
-  --vendor HashiCorp \
-  --tier Plus \
-  --seats 50 \
-  --renewal-date 2027-01-01
-
-# Update a license record (any combination of flags)
-kh license update <uuid> --status disabled
-kh license update <uuid> --renewal-date 2028-01-01 --seats 100
-
-# Delete a license record (--force required to confirm)
-kh license delete <uuid> --force
-```
-
-**Status values:** `active`, `disabled`, `archived`
 
 ---
 
-### Integrity (`verify`)
+### License Management (`kh license`)
 
-Run deep integrity checks on stored state files.
+Manage software applications, their instances, licensees, and team members.
 
+**Applications**
 ```zsh
-kh verify <state-id> --full
+kh license ls
+kh license show <uuid>
+kh license create "Terraform Cloud" --short-name tfc --owner ops --vendor HashiCorp \
+  --tier Plus --seats 50 --renewal-date 2027-01-01 --unit-cost 4.99
+kh license update <uuid> --status disabled --unit-cost 5.99
+kh license delete <uuid> --force
+```
+
+**Instances** (deployments of an application)
+```zsh
+kh license instance ls <app-uuid>
+kh license instance show <instance-uuid>
+kh license instance create <app-uuid> "Production" --short-name prod --owner ops \
+  --renewal-date 2027-01-01 --seats 25 --unit-cost 4.99
+kh license instance update <instance-uuid> --status disabled --seats 50
+kh license instance delete <instance-uuid> --force
+```
+
+**Licensees** (users assigned to an instance)
+```zsh
+kh license licensee ls <instance-uuid>
+kh license licensee show <licensee-uuid>
+kh license licensee add <instance-uuid> <member-uuid>
+kh license licensee update <licensee-uuid> --status inactive
+kh license licensee delete <licensee-uuid> --force
+```
+
+**Team Members** (organisation-wide member registry)
+```zsh
+kh license team-member ls
+kh license team-member show <uuid>
+kh license team-member add <uuid>
+kh license team-member update <uuid> --manager-uuid <manager-uuid>
+kh license team-member delete <uuid> --force
 ```
 
 ---
@@ -301,20 +295,21 @@ kh verify <state-id> --full
 ### Environment Variables
 
 | Variable | Description |
-|----------|-------------|
+| -------- | ----------- |
+| `KH_ENDPOINT` | API base URL (e.g. `https://app.keyharbour.ca/api/v2`) |
 | `KH_TOKEN` | API token for authentication |
-| `KH_ENDPOINT` | KeyHarbour API base URL including version path (e.g., `https://app.keyharbour.ca/api/v2`) |
 | `KH_PROJECT` | Default project UUID |
-| `KH_ORG` | Default organization slug |
 | `KH_WORKSPACE` | Default workspace UUID or name |
-| `KH_CONCURRENCY` | Default concurrency for parallel operations (default: 4) |
+| `KH_ORG` | Default organization slug |
+| `KH_CONCURRENCY` | Parallelism for sync operations (default: 4) |
+| `KH_OUTPUT` | Default output format: `table` or `json` |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
-| `KH_ENCRYPTION_KEY` | Hex-encoded 256-bit AES key for client-side KV encryption |
+| `KH_INSECURE` | Set to `1` to skip TLS certificate verification (dev/test only) |
+| `KH_ENCRYPTION_KEY_FILE` | Path to hex-encoded 256-bit AES key file for client-side KV encryption |
 
-**Note:** All commands support environment variable defaults. For example, if `KH_PROJECT` is set, you don't need to specify `--project` on every command.
+Priority order: config file < environment variable < CLI flag.
 
 ### Config File
-The CLI stores configuration in `~/.kh/config.json`. You can manage it via:
 
 ```zsh
 kh config set endpoint https://app.keyharbour.ca/api/v2
@@ -322,13 +317,14 @@ kh config set project <uuid>
 kh config get project
 ```
 
+Configuration is stored at `~/.config/kh/config`.
+
 ---
 
 ## CI/CD Integration
 
-The CLI is designed to run in CI environments.
-
 ```yaml
+# Example: Bitbucket Pipelines
 image: deniscdevops/keyharbour-cli:latest
 
 pipelines:
@@ -339,16 +335,19 @@ pipelines:
             - export KH_TOKEN=$KH_API_TOKEN
             - export KH_ENDPOINT=https://app.keyharbour.ca/api/v2
             - export KH_PROJECT=<project-uuid>
-            - kh statefiles push --workspace prod --file ./terraform.tfstate
+            - kh tf version push --workspace prod --file ./terraform.tfstate
 ```
 
 ### Exit Codes
-- `0`: Success
-- `2`: Partial success
-- `3`: Validation error
-- `4`: Authentication error
-- `5`: Backend I/O error
-- `6`: Lock error
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Success |
+| `2` | Partial success |
+| `3` | Validation error |
+| `4` | Authentication error |
+| `5` | Backend I/O error |
+| `6` | Lock error |
 
 ---
 
@@ -356,24 +355,18 @@ pipelines:
 
 ### Workspace Name Validation Errors
 
-**Problem:** Getting 422 errors when creating workspaces.
-
-**Solution:** Workspace names must be alphanumeric only (no hyphens, underscores, or special characters). The CLI automatically sanitizes names during `sync`. Ensure names contain only letters and numbers.
+Workspace names must be alphanumeric only (no hyphens or underscores). The CLI auto-sanitizes names during `sync` with a warning.
 
 ### Token Expiration
 
-**Problem:** Getting 401 "Invalid or outdated token" errors.
-
-**Solution:** Generate a new token and save it:
 ```zsh
-kh login --token <new-token> --endpoint https://app.keyharbour.ca/api/v2
+kh auth login --token <new-token> --endpoint https://app.keyharbour.ca/api/v2
 ```
 
 ### Debug Mode
 
-For detailed logging of API calls and troubleshooting:
 ```zsh
-kh <command> --debug
+kh tf sync --from=local --path ./state.tfstate --debug
 # or
 export KH_DEBUG=1
 ```
