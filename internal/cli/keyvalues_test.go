@@ -95,6 +95,37 @@ func TestKVList_TableOutput(t *testing.T) {
 	}
 }
 
+func TestKVList_WorkspaceUUIDNoProjectRequired(t *testing.T) {
+	const wsUUID = "11111111-2222-3333-4444-555555555555"
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"uuid": wsUUID, "name": "my-workspace"})
+	})
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID+"/keyvalues", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "FOO", "value": "bar", "expires_at": nil, "private": false},
+		})
+	})
+	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	// No --project flag — should succeed because workspace is a UUID
+	out, err := runKVCmd(t, srv, "ls", "--workspace", wsUUID)
+	if err != nil {
+		t.Fatalf("command failed without --project: %v", err)
+	}
+	if !strings.Contains(out, "FOO") {
+		t.Errorf("expected FOO in output, got: %s", out)
+	}
+}
+
 func TestKVList_JSONOutput(t *testing.T) {
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -169,6 +200,40 @@ func TestKVSet_SendsCorrectPayload(t *testing.T) {
 	}
 	if !strings.Contains(string(bodyBytes), `"value":"new-value"`) {
 		t.Errorf("expected value in body, got: %s", bodyBytes)
+	}
+}
+
+func TestKVSet_WorkspaceUUIDNoProjectRequired(t *testing.T) {
+	const wsUUID = "11111111-2222-3333-4444-555555555555"
+	var bodyBytes []byte
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"uuid": wsUUID, "name": "my-workspace"})
+	})
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID+"/keyvalues", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	// No --project flag — should succeed because workspace is a UUID
+	_, err = runKVCmd(t, srv, "set", "NEW_KEY", "new-value", "--workspace", wsUUID)
+	if err != nil {
+		t.Fatalf("command failed without --project: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), `"key":"NEW_KEY"`) {
+		t.Errorf("expected key in body, got: %s", bodyBytes)
 	}
 }
 
@@ -391,5 +456,133 @@ func TestKVList_DecryptsWithKey(t *testing.T) {
 	}
 	if !strings.Contains(out, "decrypted-value") {
 		t.Errorf("expected decrypted value in output, got: %s", out)
+	}
+}
+
+// writeValueFile writes content to a temp file and returns its path.
+func writeValueFile(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "kh-value-*")
+	if err != nil {
+		t.Fatalf("create value file: %v", err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatalf("write value file: %v", err)
+	}
+	f.Close()
+	return f.Name()
+}
+
+func TestKVSet_ValueFile(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	vf := writeValueFile(t, "value-from-file")
+	_, err := runKVCmd(t, srv, "set", "FILE_KEY", "--value-file", vf,
+		"--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), `"key":"FILE_KEY"`) {
+		t.Errorf("expected key in body, got: %s", bodyBytes)
+	}
+	if !strings.Contains(string(bodyBytes), `"value":"value-from-file"`) {
+		t.Errorf("expected file content as value in body, got: %s", bodyBytes)
+	}
+}
+
+func TestKVSet_ValueFile_AndArgMutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	vf := writeValueFile(t, "from-file")
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "direct-value", "--value-file", vf,
+		"--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err == nil {
+		t.Fatal("expected error when both value arg and --value-file are provided")
+	}
+}
+
+func TestKVSet_NoValueReturnsError(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	_, err := runKVCmd(t, srv, "set", "MY_KEY",
+		"--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err == nil {
+		t.Fatal("expected error when neither value arg nor --value-file are provided")
+	}
+}
+
+func TestKVSet_KHWorkspaceEnvVar(t *testing.T) {
+	// Regression: KH_WORKSPACE env var must be respected when --workspace flag is omitted.
+	const wsUUID = "11111111-2222-3333-4444-555555555555"
+	var called bool
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"uuid": wsUUID, "name": "my-workspace"})
+	})
+	mux.HandleFunc("/api/v2/workspaces/"+wsUUID+"/keyvalues", func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: mux}}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	t.Setenv("KH_WORKSPACE", wsUUID) // no --workspace flag; should use env var
+	_, err = runKVCmd(t, srv, "set", "MY_KEY", "my-value")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !called {
+		t.Fatal("expected keyvalues endpoint to be called")
+	}
+}
+
+func TestKVUpdate_ValueFile(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	vf := writeValueFile(t, "updated-from-file")
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "--value-file", vf)
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), `"value":"updated-from-file"`) {
+		t.Errorf("expected file content as value in body, got: %s", bodyBytes)
+	}
+}
+
+func TestKVUpdate_ValueFile_AndFlagMutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	vf := writeValueFile(t, "from-file")
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "--value", "direct", "--value-file", vf)
+	if err == nil {
+		t.Fatal("expected error when both --value and --value-file are provided")
 	}
 }

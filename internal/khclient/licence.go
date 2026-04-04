@@ -8,7 +8,7 @@ import (
 
 // ListApplications returns all applications for the organisation.
 func (c *Client) ListApplications(ctx context.Context) ([]Application, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/licence/applications", nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/license/applications", nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func (c *Client) GetApplication(ctx context.Context, uuid string) (Application, 
 	if uuid == "" {
 		return Application{}, APIError{StatusCode: http.StatusBadRequest, Message: "application uuid is required"}
 	}
-	resp, err := c.do(ctx, http.MethodGet, "/licence/applications/"+url.PathEscape(uuid), nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/license/applications/"+url.PathEscape(uuid), nil, nil, nil)
 	if err != nil {
 		return Application{}, err
 	}
@@ -48,7 +48,7 @@ func (c *Client) CreateApplication(ctx context.Context, req CreateApplicationReq
 	body := struct {
 		Application CreateApplicationRequest `json:"application"`
 	}{Application: req}
-	resp, err := c.do(ctx, http.MethodPost, "/licence/applications", nil, body, nil)
+	resp, err := c.do(ctx, http.MethodPost, "/license/applications", nil, body, nil)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (c *Client) UpdateApplication(ctx context.Context, uuid string, req UpdateA
 	body := struct {
 		Application UpdateApplicationRequest `json:"application"`
 	}{Application: req}
-	resp, err := c.do(ctx, http.MethodPatch, "/licence/applications/"+url.PathEscape(uuid), nil, body, nil)
+	resp, err := c.do(ctx, http.MethodPatch, "/license/applications/"+url.PathEscape(uuid), nil, body, nil)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (c *Client) DeleteApplication(ctx context.Context, uuid string) error {
 	if uuid == "" {
 		return APIError{StatusCode: http.StatusBadRequest, Message: "application uuid is required"}
 	}
-	resp, err := c.do(ctx, http.MethodDelete, "/licence/applications/"+url.PathEscape(uuid), nil, nil, nil)
+	resp, err := c.do(ctx, http.MethodDelete, "/license/applications/"+url.PathEscape(uuid), nil, nil, nil)
 	if err != nil {
 		return err
 	}

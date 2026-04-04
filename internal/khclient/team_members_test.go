@@ -10,75 +10,70 @@ import (
 	"kh/internal/config"
 )
 
-func TestListApplications(t *testing.T) {
+func TestListTeamMembers(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", r.Method)
 		}
-		if r.URL.Path != "/license/applications" {
+		if r.URL.Path != "/license/team_members" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]Application{
-			{UUID: "app-1", Name: "Terraform Cloud", ShortName: "tfc", Vendor: "HashiCorp", Owner: "ops"},
-			{UUID: "app-2", Name: "Datadog", ShortName: "dd", Vendor: "Datadog", Owner: "sre"},
+		json.NewEncoder(w).Encode([]TeamMember{
+			{UUID: "user-1"},
+			{UUID: "user-2"},
 		})
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	items, err := c.ListApplications(context.Background())
+	items, err := c.ListTeamMembers(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
 	}
-	if items[0].UUID != "app-1" || items[0].Name != "Terraform Cloud" {
+	if items[0].UUID != "user-1" {
 		t.Fatalf("unexpected item[0]: %+v", items[0])
 	}
 }
 
-func TestGetApplication(t *testing.T) {
+func TestGetTeamMember(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/license/applications/app-1" {
+		if r.URL.Path != "/license/team_members/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(Application{
-			Name: "Terraform Cloud", ShortName: "tfc", Vendor: "HashiCorp", Owner: "ops", Status: "active",
-		})
+		json.NewEncoder(w).Encode(TeamMember{})
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	app, err := c.GetApplication(context.Background(), "app-1")
+	tm, err := c.GetTeamMember(context.Background(), "user-1")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if app.UUID != "app-1" {
-		t.Fatalf("expected UUID to be set from path, got %q", app.UUID)
-	}
-	if app.Name != "Terraform Cloud" {
-		t.Fatalf("unexpected name: %q", app.Name)
+	if tm.UUID != "user-1" {
+		t.Fatalf("expected UUID to be set from path, got %q", tm.UUID)
 	}
 }
 
-func TestGetApplication_RequiresUUID(t *testing.T) {
+func TestGetTeamMember_RequiresUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	if _, err := c.GetApplication(context.Background(), ""); err == nil {
+	if _, err := c.GetTeamMember(context.Background(), ""); err == nil {
 		t.Fatal("expected error for empty uuid")
 	}
 }
 
-func TestCreateApplication(t *testing.T) {
+func TestCreateTeamMember(t *testing.T) {
 	var bodyBytes []byte
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/license/applications" {
+		if r.URL.Path != "/license/team_members" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		bodyBytes, _ = io.ReadAll(r.Body)
@@ -87,12 +82,7 @@ func TestCreateApplication(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.CreateApplication(context.Background(), CreateApplicationRequest{
-		Name:      "Terraform Cloud",
-		ShortName: "tfc",
-		Owner:     "ops",
-		Vendor:    "HashiCorp",
-	})
+	err := c.CreateTeamMember(context.Background(), CreateTeamMemberRequest{UUID: "user-1"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -100,22 +90,23 @@ func TestCreateApplication(t *testing.T) {
 	if err := json.Unmarshal(bodyBytes, &m); err != nil {
 		t.Fatalf("invalid body JSON: %v", err)
 	}
-	app, _ := m["application"].(map[string]any)
-	if app == nil {
-		t.Fatalf("expected application wrapper in body, got: %s", bodyBytes)
+	tm, _ := m["team_member"].(map[string]any)
+	if tm == nil {
+		t.Fatalf("expected team_member wrapper in body, got: %s", bodyBytes)
 	}
-	if app["name"] != "Terraform Cloud" {
-		t.Fatalf("expected name in body, got: %s", bodyBytes)
+	if tm["uuid"] != "user-1" {
+		t.Fatalf("expected uuid=user-1 in body, got: %s", bodyBytes)
 	}
 }
 
-func TestUpdateApplication(t *testing.T) {
+func TestUpdateTeamMember(t *testing.T) {
 	var bodyBytes []byte
+	managerUUID := "mgr-1"
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
 		}
-		if r.URL.Path != "/license/applications/app-1" {
+		if r.URL.Path != "/license/team_members/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		bodyBytes, _ = io.ReadAll(r.Body)
@@ -124,9 +115,7 @@ func TestUpdateApplication(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.UpdateApplication(context.Background(), "app-1", UpdateApplicationRequest{
-		Status: "disabled",
-	})
+	err := c.UpdateTeamMember(context.Background(), "user-1", UpdateTeamMemberRequest{ManagerUUID: managerUUID})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -134,40 +123,40 @@ func TestUpdateApplication(t *testing.T) {
 	if err := json.Unmarshal(bodyBytes, &m); err != nil {
 		t.Fatalf("invalid body JSON: %v", err)
 	}
-	app, _ := m["application"].(map[string]any)
-	if app == nil {
-		t.Fatalf("expected application wrapper in body, got: %s", bodyBytes)
+	tm, _ := m["team_member"].(map[string]any)
+	if tm == nil {
+		t.Fatalf("expected team_member wrapper in body, got: %s", bodyBytes)
 	}
-	if app["status"] != "disabled" {
-		t.Fatalf("expected status=disabled in body, got: %s", bodyBytes)
+	if tm["manager_uuid"] != managerUUID {
+		t.Fatalf("expected manager_uuid=%s in body, got: %s", managerUUID, bodyBytes)
 	}
 }
 
-func TestUpdateApplication_RequiresUUID(t *testing.T) {
+func TestUpdateTeamMember_RequiresUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.UpdateApplication(context.Background(), "", UpdateApplicationRequest{}); err == nil {
+	if err := c.UpdateTeamMember(context.Background(), "", UpdateTeamMemberRequest{}); err == nil {
 		t.Fatal("expected error for empty uuid")
 	}
 }
 
-func TestDeleteApplication(t *testing.T) {
+func TestDeleteTeamMember(t *testing.T) {
 	var hits int
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		if r.Method != http.MethodDelete {
 			t.Fatalf("expected DELETE, got %s", r.Method)
 		}
-		if r.URL.Path != "/license/applications/app-1" {
+		if r.URL.Path != "/license/team_members/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.DeleteApplication(context.Background(), "app-1"); err != nil {
+	if err := c.DeleteTeamMember(context.Background(), "user-1"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if hits != 1 {
@@ -175,12 +164,12 @@ func TestDeleteApplication(t *testing.T) {
 	}
 }
 
-func TestDeleteApplication_RequiresUUID(t *testing.T) {
+func TestDeleteTeamMember_RequiresUUID(t *testing.T) {
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.DeleteApplication(context.Background(), ""); err == nil {
+	if err := c.DeleteTeamMember(context.Background(), ""); err == nil {
 		t.Fatal("expected error for empty uuid")
 	}
 }

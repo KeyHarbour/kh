@@ -25,15 +25,21 @@ func newRootCmd() *cobra.Command {
 		Short: "KeyHarbour CLI",
 		Long: `kh is the official CLI for KeyHarbour, a self-hosted Terraform state backend.
 
-It lets you migrate Terraform state from any backend (local, S3, HTTP, Terraform Cloud)
-to KeyHarbour, manage statefile versions, and handle workspace key/value pairs.
+  kh auth      Authenticate and manage identity
+  kh tf        Terraform state management (sync, version, lock, verify, init)
+  kh project   Inspect projects
+  kh workspace Inspect workspaces
+  kh kv        Manage key/value pairs
+  kh config    Manage CLI configuration
+  kh license   Manage software licenses
 
 Environment variables:
   KH_ENDPOINT     API base URL (e.g. https://app.keyharbour.ca/api/v2)
   KH_TOKEN        Bearer token for authentication
   KH_PROJECT      Default project UUID
   KH_WORKSPACE    Default workspace name or UUID
-  KH_DEBUG           Set to 1 for verbose debug logging
+  KH_DEBUG        Set to 1 for verbose debug logging
+  KH_INSECURE     Set to 1 to skip TLS certificate verification (dev/test only)
   KH_ENCRYPTION_KEY  Hex-encoded 256-bit AES key for client-side KV encryption`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -65,26 +71,27 @@ Environment variables:
 			}
 		}
 		logging.SetDebug(debug)
+		// Apply KH_OUTPUT env var only when --output was not explicitly passed.
+		if !cmd.Root().PersistentFlags().Changed("output") {
+			if v := os.Getenv("KH_OUTPUT"); v != "" {
+				outputFormat = v
+			}
+		}
+		// Warn when TLS verification is disabled so it is never silent.
+		if v := os.Getenv("KH_INSECURE"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is disabled (KH_INSECURE)")
+		}
 	}
 
 	// Attach subcommands
-	cmd.AddCommand(newLoginCmd())
-	cmd.AddCommand(newWhoamiCmd())
-	cmd.AddCommand(newConfigCmd())
-	cmd.AddCommand(newStateCmd())
+	cmd.AddCommand(newAuthCmd())
+	cmd.AddCommand(newTFCmd())
 	cmd.AddCommand(newProjectsCmd())
 	cmd.AddCommand(newWorkspacesCmd())
-	cmd.AddCommand(newStatefilesCmd())
 	cmd.AddCommand(newKVCmd())
-	cmd.AddCommand(newSyncCmd())
-	cmd.AddCommand(newVerifyCmd())
-	cmd.AddCommand(newLockCmd())
-	cmd.AddCommand(newUnlockCmd())
-	cmd.AddCommand(newCompletionCmd(cmd))
-	cmd.AddCommand(newInitCmd())
-	cmd.AddCommand(newTFCCmd())
-	cmd.AddCommand(newHTTPCmd())
+	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newLicenseCmd())
+	cmd.AddCommand(newCompletionCmd(cmd))
 	// version is available via the global --version flag; no separate subcommand required
 
 	// When no subcommand is provided, run this root handler.

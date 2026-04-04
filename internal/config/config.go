@@ -17,6 +17,9 @@ type Config struct {
 	Project     string `json:"project"`
 	Token       string `json:"token"`
 	Concurrency int    `json:"concurrency"`
+	// InsecureTLS disables TLS certificate verification. Set via KH_INSECURE=1
+	// only — intentionally not persisted to the config file.
+	InsecureTLS bool `json:"-"`
 }
 
 func defaultConfig() Config {
@@ -84,13 +87,13 @@ func Save(cfg Config) error {
 	return os.WriteFile(p, b, 0o600)
 }
 
-// LoadWithEnv loads config from disk and applies environment variable overrides
+// LoadWithEnv loads config from disk and applies environment variable overrides.
+// Env vars are applied even when the config file fails to load, so that
+// KH_ENDPOINT / KH_TOKEN etc. always work regardless of the file state.
 func LoadWithEnv() (Config, error) {
 	cfg, err := Load()
-	if err != nil {
-		return cfg, err
-	}
-	// Apply environment variable overrides
+	// Always apply env overrides, even on a Load error (e.g. malformed config
+	// file). This ensures env vars are never silently ignored.
 	if v := os.Getenv("KH_ENDPOINT"); v != "" {
 		cfg.Endpoint = v
 	}
@@ -111,7 +114,10 @@ func LoadWithEnv() (Config, error) {
 			cfg.Concurrency = n
 		}
 	}
-	return cfg, nil
+	if v := os.Getenv("KH_INSECURE"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+		cfg.InsecureTLS = true
+	}
+	return cfg, err
 }
 
 // Helpers with precedence: flag > env > config default

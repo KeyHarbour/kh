@@ -65,36 +65,97 @@ type UpdateWorkspaceRequest struct {
 }
 
 type Application struct {
-	UUID        string `json:"uuid,omitempty"`
-	Name        string `json:"name"`
-	ShortName   string `json:"short_name"`
-	Owner       string `json:"owner"`
-	Vendor      string `json:"vendor"`
-	RenewalDate string `json:"renewal_date,omitempty"`
-	Tier        string `json:"tier,omitempty"`
-	Seats       *int   `json:"seats,omitempty"`
-	Status      string `json:"status,omitempty"`
+	UUID        string   `json:"uuid,omitempty"`
+	Name        string   `json:"name"`
+	ShortName   string   `json:"short_name"`
+	Owner       string   `json:"owner"`
+	Vendor      string   `json:"vendor"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Tier        string   `json:"tier,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
+	Status      string   `json:"status,omitempty"`
 }
 
 type CreateApplicationRequest struct {
-	Name        string `json:"name"`
-	ShortName   string `json:"short_name"`
-	Owner       string `json:"owner"`
-	Vendor      string `json:"vendor"`
-	RenewalDate string `json:"renewal_date,omitempty"`
-	Tier        string `json:"tier,omitempty"`
-	Seats       *int   `json:"seats,omitempty"`
+	Name        string   `json:"name"`
+	ShortName   string   `json:"short_name"`
+	Owner       string   `json:"owner"`
+	Vendor      string   `json:"vendor"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Tier        string   `json:"tier,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
 }
 
 type UpdateApplicationRequest struct {
-	Name        string `json:"name,omitempty"`
-	ShortName   string `json:"short_name,omitempty"`
-	Owner       string `json:"owner,omitempty"`
-	Vendor      string `json:"vendor,omitempty"`
-	RenewalDate string `json:"renewal_date,omitempty"`
-	Tier        string `json:"tier,omitempty"`
-	Seats       *int   `json:"seats,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	ShortName   string   `json:"short_name,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
+	Vendor      string   `json:"vendor,omitempty"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Tier        string   `json:"tier,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
+	Status      string   `json:"status,omitempty"`
+}
+
+type Instance struct {
+	UUID        string   `json:"uuid,omitempty"`
+	Name        string   `json:"name"`
+	ShortName   string   `json:"short_name"`
+	Owner       string   `json:"owner,omitempty"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
+	Status      string   `json:"status,omitempty"`
+}
+
+type CreateInstanceRequest struct {
+	Name        string   `json:"name"`
+	ShortName   string   `json:"short_name"`
+	Owner       string   `json:"owner,omitempty"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
+}
+
+type UpdateInstanceRequest struct {
+	Name        string   `json:"name,omitempty"`
+	ShortName   string   `json:"short_name,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
+	RenewalDate string   `json:"renewal_date,omitempty"`
+	Seats       *int     `json:"seats,omitempty"`
+	UnitCost    *float64 `json:"unit_cost,omitempty"`
+	Status      string   `json:"status,omitempty"`
+}
+
+type Licensee struct {
+	UUID   string `json:"uuid"`
+	Status string `json:"status,omitempty"`
+}
+
+type CreateLicenseeRequest struct {
+	UUID string `json:"uuid"`
+}
+
+type UpdateLicenseeRequest struct {
+	UUID   string `json:"uuid"`
+	Status string `json:"status,omitempty"`
+}
+
+type TeamMember struct {
+	UUID        string  `json:"uuid"`
+	ManagerUUID *string `json:"manager_uuid"`
+}
+
+type CreateTeamMemberRequest struct {
+	UUID string `json:"uuid"`
+}
+
+type UpdateTeamMemberRequest struct {
+	UUID        string `json:"uuid"`
+	ManagerUUID string `json:"manager_uuid"`
 }
 
 type UpdateKeyValueRequest struct {

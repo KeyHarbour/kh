@@ -33,8 +33,9 @@ func newKVCmd() *cobra.Command {
 Commands that operate on a specific key (get, update, delete) only require the
 key name — no --project or --workspace flags needed.
 
-Commands that operate on the workspace collection (ls, set) require --project
-and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).`,
+Commands that operate on the workspace collection (ls, set) require --workspace
+(or KH_WORKSPACE). If the workspace is identified by name rather than UUID,
+--project (or KH_PROJECT) is also required for name resolution.`,
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
@@ -49,10 +50,6 @@ and --workspace (or KH_PROJECT / KH_WORKSPACE env vars).`,
 }
 
 func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error) {
-	projectRef := projectRefOrEnv(o.project, cfg)
-	if projectRef == "" {
-		return "", errors.New("--project is required (or set KH_PROJECT)")
-	}
 	workspaceRef := o.workspace
 	if workspaceRef == "" {
 		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
@@ -65,6 +62,20 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// If the workspace ref is already a UUID, resolve it directly — no project needed.
+	if looksLikeUUID(workspaceRef) {
+		ws, err := client.GetWorkspace(ctx, workspaceRef)
+		if err != nil {
+			return "", err
+		}
+		return ws.UUID, nil
+	}
+
+	// Name-based lookup requires a project reference.
+	projectRef := projectRefOrEnv(o.project, cfg)
+	if projectRef == "" {
+		return "", errors.New("--project is required when workspace is specified by name (or set KH_PROJECT)")
+	}
 	project, err := resolveProjectRef(ctx, client, projectRef)
 	if err != nil {
 		return "", err
@@ -105,13 +116,14 @@ func newKVListCmd(opts *kvCmdOpts) *cobra.Command {
 		Short: "List key/value pairs in a workspace",
 		Long: `List all key/value pairs stored in a workspace.
 
-Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Requires --workspace (or KH_WORKSPACE). If the workspace is specified by name
+rather than UUID, --project (or KH_PROJECT) is also required for name resolution.
 Private values are masked as *** in table output; use -o json to see the raw
 response (values remain masked server-side unless the token has reveal access).
 
 Examples:
-  kh kv ls --project <uuid> --workspace <uuid>
-  kh kv ls --project <uuid> --workspace prod -o json`,
+  kh kv ls --workspace <uuid>
+  kh kv ls --workspace prod --project <uuid> -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			workspaceUUID, err := opts.resolve(cfg)
@@ -239,19 +251,34 @@ Examples:
 func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 	var private bool
 	var expiresAt string
+	var valueFile string
 	cmd := &cobra.Command{
-		Use:   "set <key> <value>",
+		Use:   "set <key> [value]",
 		Short: "Create a new key/value in a workspace",
 		Long: `Create a new key/value pair in a workspace.
 
-Requires --project and --workspace (or KH_PROJECT / KH_WORKSPACE).
+Requires --workspace (or KH_WORKSPACE). If the workspace is specified by name
+rather than UUID, --project (or KH_PROJECT) is also required for name resolution.
+
+The value can be provided as a positional argument or read from a file with
+--value-file. Exactly one of the two must be supplied.
 
 Examples:
-  kh kv set MY_KEY my-value --project <uuid> --workspace <uuid>
-  kh kv set MY_SECRET s3cr3t --project <uuid> --workspace prod --private
-  kh kv set TEMP_KEY value --project <uuid> --workspace prod --expires-at 2026-12-31T00:00:00Z`,
-		Args: cobra.ExactArgs(2),
+  kh kv set MY_KEY my-value --workspace <uuid>
+  kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
+  kh kv set TEMP_KEY value --workspace prod --project <uuid> --expires-at 2026-12-31T00:00:00Z
+  kh kv set CERT --value-file ./cert.pem --workspace <uuid>`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			hasValueArg := len(args) == 2
+			hasValueFile := cmd.Flags().Changed("value-file")
+			if hasValueArg && hasValueFile {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either a positional value or --value-file, not both"))
+			}
+			if !hasValueArg && !hasValueFile {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("a value is required: provide it as an argument or via --value-file"))
+			}
+
 			cfg, _ := config.LoadWithEnv()
 			workspaceUUID, err := opts.resolve(cfg)
 			if err != nil {
@@ -265,7 +292,16 @@ Examples:
 			if err != nil {
 				return err
 			}
-			value := args[1]
+			var value string
+			if hasValueFile {
+				data, err := os.ReadFile(valueFile)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("cannot read value file: %w", err))
+				}
+				value = string(data)
+			} else {
+				value = args[1]
+			}
 			if encKey != nil {
 				value, err = kvencrypt.Encrypt(*encKey, value)
 				if err != nil {
@@ -291,6 +327,7 @@ Examples:
 	}
 	cmd.Flags().BoolVar(&private, "private", false, "Mark the value as private (masked in list output)")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
+	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read value from a file instead of a positional argument")
 	return cmd
 }
 
@@ -298,24 +335,35 @@ Examples:
 
 func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 	var value string
+	var valueFile string
 	var private string // "true"|"false"|"" (unset = don't change)
 	var expiresAt string
 	cmd := &cobra.Command{
 		Use:   "update <key>",
-		Short: "Update an existing key/value",
+		Short: "Create or update a key/value",
 		Long: `Update the value, private flag, or expiry of an existing key/value.
 
-No --project or --workspace flags are required; the key name uniquely identifies
-the record within your token scope.
+If the key does not exist and --workspace is provided (or KH_WORKSPACE is set),
+the key is created automatically (upsert). If the workspace is specified by name
+rather than UUID, --project (or KH_PROJECT) is also required.
+
+The value can be supplied via --value or read from a file with --value-file.
 
 Examples:
   kh kv update MY_KEY --value new-value
+  kh kv update MY_KEY --value-file ./cert.pem
   kh kv update MY_KEY --value new-value --private true
-  kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z`,
+  kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z
+  kh kv update MY_KEY --value new-value --workspace <uuid>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !cmd.Flags().Changed("value") {
-				return errors.New("--value is required")
+			hasValue := cmd.Flags().Changed("value")
+			hasValueFile := cmd.Flags().Changed("value-file")
+			if hasValue && hasValueFile {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either --value or --value-file, not both"))
+			}
+			if !hasValue && !hasValueFile {
+				return errors.New("--value or --value-file is required")
 			}
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -325,6 +373,13 @@ Examples:
 			encKey, err := opts.resolveEncryptionKey(cfg)
 			if err != nil {
 				return err
+			}
+			if hasValueFile {
+				data, err := os.ReadFile(valueFile)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("cannot read value file: %w", err))
+				}
+				value = string(data)
 			}
 			sendValue := value
 			if encKey != nil {
@@ -343,14 +398,45 @@ Examples:
 				req.Private = &b
 			}
 
-			if err := client.UpdateKeyValue(ctx, args[0], req); err != nil {
-				return err
+			updateErr := client.UpdateKeyValue(ctx, args[0], req)
+			if updateErr == nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Key %q updated.\n", args[0])
+				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Key %q updated.\n", args[0])
-			return nil
+
+			// On 404, fall back to create if a workspace can be resolved.
+			var apiErr khclient.APIError
+			if errors.As(updateErr, &apiErr) && apiErr.StatusCode == 404 {
+				workspaceRef := opts.workspace
+				if workspaceRef == "" {
+					workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
+				}
+				if workspaceRef != "" {
+					workspaceUUID, rerr := opts.resolve(cfg)
+					if rerr != nil {
+						return rerr
+					}
+					isPrivate := private == "true"
+					createReq := khclient.CreateKeyValueRequest{
+						Key:     args[0],
+						Value:   sendValue,
+						Private: isPrivate,
+					}
+					if expiresAt != "" {
+						createReq.ExpiresAt = &expiresAt
+					}
+					if cerr := client.CreateKeyValue(ctx, workspaceUUID, createReq); cerr != nil {
+						return cerr
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "Key %q created.\n", args[0])
+					return nil
+				}
+			}
+			return updateErr
 		},
 	}
 	cmd.Flags().StringVar(&value, "value", "", "New value")
+	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read new value from a file")
 	cmd.Flags().StringVar(&private, "private", "", "Set private flag: true|false")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
 	return cmd

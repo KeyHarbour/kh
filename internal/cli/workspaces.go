@@ -20,7 +20,7 @@ type workspaceCmdOpts struct {
 func newWorkspacesCmd() *cobra.Command {
 	opts := &workspaceCmdOpts{}
 	cmd := &cobra.Command{
-		Use:   "workspaces",
+		Use:   "workspace",
 		Short: "Inspect project workspaces",
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")

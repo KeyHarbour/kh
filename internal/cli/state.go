@@ -21,9 +21,12 @@ type StateMeta struct {
 }
 
 func newStateCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "state", Short: "Inspect and discover states"}
+	cmd := &cobra.Command{Use: "state", Short: "Inspect and manage states"}
 	cmd.AddCommand(newStateLsCmd())
 	cmd.AddCommand(newStateShowCmd())
+	cmd.AddCommand(newLockCmd())
+	cmd.AddCommand(newUnlockCmd())
+	cmd.AddCommand(newVerifyCmd())
 	return cmd
 }
 
@@ -67,7 +70,7 @@ func newStateShowCmd() *cobra.Command {
 		Short: "Show a state's JSON (Terraform v4)",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("state show requires 1 argument: <state-id>. Tip: run 'kh state ls' to list IDs")
+				return fmt.Errorf("state show requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
 			}
 			return nil
 		},
