@@ -226,6 +226,22 @@ kh kv update MY_KEY --value-file ./cert.pem
 
 # Delete a key
 kh kv delete MY_KEY --force
+
+# Inject all workspace KVs into the current shell
+eval $(kh kv env --workspace prod)
+
+# Inject only keys prefixed with KH_ENV_, stripping the prefix
+# KH_ENV_DATABASE_URL → DATABASE_URL, KH_ENV_API_KEY → API_KEY
+eval $(kh kv env --workspace prod --prefix KH_ENV_)
+
+# Write a .env file
+kh kv env --workspace <uuid> --format dotenv > .env
+kh kv env --workspace <uuid> --prefix KH_ENV_ --format dotenv > .env
+
+# Run a command with workspace KVs in its environment (safer than eval)
+kh kv run --workspace prod -- terraform apply
+kh kv run --workspace prod --prefix KH_ENV_ -- terraform apply
+kh kv run --workspace <uuid> --environment staging -- ./deploy.sh
 ```
 
 #### Client-Side Encryption

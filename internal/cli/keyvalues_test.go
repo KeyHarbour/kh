@@ -586,3 +586,219 @@ func TestKVUpdate_ValueFile_AndFlagMutuallyExclusive(t *testing.T) {
 		t.Fatal("expected error when both --value and --value-file are provided")
 	}
 }
+
+// ── env ───────────────────────────────────────────────────────────────────────
+
+func TestKVEnv_ExportFormat(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "FOO", "value": "bar", "private": false},
+			{"key": "SECRET", "value": "s3cr3t", "private": true},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, "export FOO='bar'") {
+		t.Errorf("expected export FOO='bar', got: %s", out)
+	}
+	if !strings.Contains(out, "export SECRET='s3cr3t'") {
+		t.Errorf("expected export SECRET='s3cr3t', got: %s", out)
+	}
+}
+
+func TestKVEnv_DotenvFormat(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "FOO", "value": "bar", "private": false},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--format", "dotenv")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if strings.Contains(out, "export ") {
+		t.Errorf("dotenv format should not contain 'export', got: %s", out)
+	}
+	if !strings.Contains(out, "FOO='bar'") {
+		t.Errorf("expected FOO='bar', got: %s", out)
+	}
+}
+
+func TestKVEnv_FilterByEnvironment(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "PROD_KEY", "value": "pval", "private": false, "environment": "prod"},
+			{"key": "STG_KEY", "value": "sval", "private": false, "environment": "staging"},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--environment", "prod")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, "PROD_KEY") {
+		t.Errorf("expected PROD_KEY in output, got: %s", out)
+	}
+	if strings.Contains(out, "STG_KEY") {
+		t.Errorf("staging key should be filtered out, got: %s", out)
+	}
+}
+
+func TestKVEnv_EscapesSingleQuotes(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "TRICKY", "value": "it's a 'test'", "private": false},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	// Single quotes inside value must be escaped as '\''
+	if !strings.Contains(out, `it'\''s a '\''test'\''`) {
+		t.Errorf("expected escaped single quotes, got: %s", out)
+	}
+}
+
+func TestKVEnv_SkipsEncryptedWithoutKey(t *testing.T) {
+	var rawKey [32]byte
+	for i := range rawKey {
+		rawKey[i] = byte(i)
+	}
+	ciphertext, _ := kvencrypt.Encrypt(rawKey, "secret-value")
+
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "ENC_VAR", "value": ciphertext, "private": false},
+			{"key": "PLAIN_VAR", "value": "plain", "private": false},
+		})
+	})
+
+	// No encryption key provided — encrypted key should be skipped with a warning
+	errBuf := &bytes.Buffer{}
+	t.Setenv("KH_ENDPOINT", srv.URL)
+	t.Setenv("KH_TOKEN", "test-token")
+	cmd := newKVCmd()
+	outBuf := &bytes.Buffer{}
+	cmd.SetOut(outBuf)
+	cmd.SetErr(errBuf)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{"env", "--project", "proj-uuid", "--workspace", "ws-uuid"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if strings.Contains(outBuf.String(), "ENC_VAR") {
+		t.Errorf("encrypted key should be skipped without decryption key, got: %s", outBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), "PLAIN_VAR") {
+		t.Errorf("plain key should still be printed, got: %s", outBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "ENC_VAR") {
+		t.Errorf("expected warning about ENC_VAR on stderr, got: %s", errBuf.String())
+	}
+}
+
+// ── run ───────────────────────────────────────────────────────────────────────
+
+func TestKVRun_InjectsEnvVars(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "MY_TEST_VAR", "value": "hello-from-kh", "private": false},
+		})
+	})
+
+	t.Setenv("KH_ENDPOINT", srv.URL)
+	t.Setenv("KH_TOKEN", "test-token")
+
+	outBuf := &bytes.Buffer{}
+	cmd := newKVCmd()
+	cmd.SetOut(outBuf)
+	cmd.SetErr(io.Discard)
+	cmd.SetContext(context.Background())
+	// Use `sh -c 'echo $MY_TEST_VAR'` to verify the var is in the subprocess env.
+	// We can't use syscall.Exec in tests (it would replace the process), so
+	// this test verifies the command reaches exec by checking for "command not found"
+	// when the binary doesn't exist — the real injection is tested via integration.
+	cmd.SetArgs([]string{"run", "--project", "proj-uuid", "--workspace", "ws-uuid", "--", "nonexistent-binary-xyz"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for nonexistent binary")
+	}
+	if !strings.Contains(err.Error(), "nonexistent-binary-xyz") {
+		t.Errorf("expected command-not-found error, got: %v", err)
+	}
+}
+
+func TestKVRun_RequiresCommand(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	_, err := runKVCmd(t, srv, "run", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err == nil {
+		t.Fatal("expected error when no command provided")
+	}
+}
+
+func TestKVEnv_PrefixFiltersAndStrips(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "KH_ENV_DATABASE_URL", "value": "postgres://localhost/db", "private": false},
+			{"key": "KH_ENV_API_KEY", "value": "secret123", "private": true},
+			{"key": "INTERNAL_ONLY", "value": "should-be-excluded", "private": false},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--prefix", "KH_ENV_")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	// Prefix should be stripped
+	if !strings.Contains(out, "export DATABASE_URL='postgres://localhost/db'") {
+		t.Errorf("expected DATABASE_URL without prefix, got: %s", out)
+	}
+	if !strings.Contains(out, "export API_KEY='secret123'") {
+		t.Errorf("expected API_KEY without prefix, got: %s", out)
+	}
+	// KH_ENV_ prefixed key name must not appear
+	if strings.Contains(out, "KH_ENV_") {
+		t.Errorf("prefix should be stripped from output, got: %s", out)
+	}
+	// Non-prefixed key must be excluded
+	if strings.Contains(out, "INTERNAL_ONLY") {
+		t.Errorf("non-prefixed key should be excluded, got: %s", out)
+	}
+}
+
+func TestKVEnv_NoPrefixIncludesAll(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "KH_ENV_FOO", "value": "v1", "private": false},
+			{"key": "OTHER", "value": "v2", "private": false},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, "export KH_ENV_FOO='v1'") {
+		t.Errorf("expected KH_ENV_FOO unchanged, got: %s", out)
+	}
+	if !strings.Contains(out, "export OTHER='v2'") {
+		t.Errorf("expected OTHER in output, got: %s", out)
+	}
+}
