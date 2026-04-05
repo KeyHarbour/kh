@@ -1,6 +1,15 @@
+## v1.5.0 (2026-04-04)
+
+### Features
+* add `--prefix` flag to `kh kv env` and `kh kv run` — strip a key prefix before injecting variables (0f2eb42)
+
+---
+
 ## v1.4.0 (2026-04-04)
 
 ### Features
+* add `kh kv env` — print workspace key/values as shell exports or dotenv lines (868ba92)
+* add `kh kv run` — exec a command with workspace key/values injected into its environment (868ba92)
 * add licence instances, licensees, and team-members management (31d2eed)
 
 ### Bug Fixes

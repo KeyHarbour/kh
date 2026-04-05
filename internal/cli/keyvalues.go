@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"kh/internal/config"
@@ -46,6 +48,8 @@ Commands that operate on the workspace collection (ls, set) require --workspace
 	cmd.AddCommand(newKVSetCmd(opts))
 	cmd.AddCommand(newKVUpdateCmd(opts))
 	cmd.AddCommand(newKVDeleteCmd(opts))
+	cmd.AddCommand(newKVEnvCmd(opts))
+	cmd.AddCommand(newKVRunCmd(opts))
 	return cmd
 }
 
@@ -477,5 +481,180 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Confirm deletion without prompting")
+	return cmd
+}
+
+// ── env ───────────────────────────────────────────────────────────────────────
+
+// resolveKVPairs fetches KV pairs from the workspace, applies prefix/environment
+// filters, decrypts values where possible, and returns a flat map of name→value.
+// When prefix is non-empty, only keys with that prefix are included and the prefix
+// is stripped from the resulting name.
+func resolveKVPairs(
+	cmd *cobra.Command,
+	client interface {
+		ListKeyValues(context.Context, string) ([]khclient.KeyValue, error)
+	},
+	ctx context.Context,
+	workspaceUUID, prefix, environment string,
+	encKey *[32]byte,
+) []struct{ Name, Value string } {
+	items, err := client.ListKeyValues(ctx, workspaceUUID)
+	if err != nil {
+		return nil
+	}
+	var out []struct{ Name, Value string }
+	for _, kv := range items {
+		if environment != "" && kv.Environment != environment {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(kv.Key, prefix) {
+			continue
+		}
+		name := strings.TrimPrefix(kv.Key, prefix)
+		val := kv.Value
+		if kvencrypt.IsEncrypted(val) {
+			if encKey == nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping encrypted key %q (no --encryption-key-file)\n", kv.Key)
+				continue
+			}
+			plain, err := kvencrypt.Decrypt(*encKey, val)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping key %q: decryption failed: %v\n", kv.Key, err)
+				continue
+			}
+			val = plain
+		}
+		out = append(out, struct{ Name, Value string }{name, val})
+	}
+	return out
+}
+
+func newKVEnvCmd(opts *kvCmdOpts) *cobra.Command {
+	var format string
+	var environment string
+	var prefix string
+	cmd := &cobra.Command{
+		Use:   "env",
+		Short: "Print workspace key/values as environment variable assignments",
+		Long: `Fetch all key/value pairs from a workspace and print them as shell
+variable assignments suitable for sourcing or eval.
+
+Formats:
+  export  (default) — "export KEY='VALUE'" lines, safe to eval in bash/zsh
+  dotenv            — "KEY=VALUE" lines for .env files / Docker --env-file
+
+Use --prefix to include only keys that start with the given prefix. The prefix
+is stripped from the variable name before output, so KH_ENV_DATABASE_URL becomes
+DATABASE_URL. Without --prefix all keys are included as-is.
+
+Use --environment to filter to keys tagged with a specific environment label.
+Encrypted values are decrypted automatically when --encryption-key-file is set.
+Private values are included — secure your terminal session accordingly.
+
+Examples:
+  eval $(kh kv env --workspace prod)
+  eval $(kh kv env --workspace prod --prefix KH_ENV_)
+  kh kv env --workspace <uuid> --format dotenv > .env
+  kh kv env --workspace <uuid> --prefix KH_ENV_ --format dotenv > .env
+  kh kv env --workspace prod --environment staging`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.LoadWithEnv()
+			workspaceUUID, err := opts.resolve(cfg)
+			if err != nil {
+				return err
+			}
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+
+			pairs := resolveKVPairs(cmd, client, ctx, workspaceUUID, prefix, environment, encKey)
+			out := cmd.OutOrStdout()
+			for _, p := range pairs {
+				// Single-quote the value and escape any embedded single quotes.
+				escaped := strings.ReplaceAll(p.Value, "'", `'\''`)
+				switch format {
+				case "dotenv":
+					fmt.Fprintf(out, "%s='%s'\n", p.Name, escaped)
+				default: // "export"
+					fmt.Fprintf(out, "export %s='%s'\n", p.Name, escaped)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&format, "format", "f", "export", "Output format: export|dotenv")
+	cmd.Flags().StringVar(&environment, "environment", "", "Filter to keys tagged with this environment label")
+	cmd.Flags().StringVar(&prefix, "prefix", "", "Only include keys with this prefix; strip it from the variable name (e.g. KH_ENV_)")
+	return cmd
+}
+
+// ── run ───────────────────────────────────────────────────────────────────────
+
+func newKVRunCmd(opts *kvCmdOpts) *cobra.Command {
+	var environment string
+	var prefix string
+	cmd := &cobra.Command{
+		Use:   "run -- <command> [args...]",
+		Short: "Run a command with workspace key/values injected as environment variables",
+		Long: `Fetch all key/value pairs from a workspace and exec a command with those
+key/value pairs injected into its environment.
+
+The child process inherits the current environment plus the workspace keys.
+Workspace values override any existing environment variable with the same name.
+
+Use --prefix to include only keys that start with the given prefix. The prefix
+is stripped from the variable name before injection, so KH_ENV_DATABASE_URL
+becomes DATABASE_URL in the child process environment.
+
+Encrypted values are decrypted automatically when --encryption-key-file is set.
+Use --environment to inject only keys tagged with a specific environment label.
+
+Examples:
+  kh kv run --workspace prod -- terraform apply
+  kh kv run --workspace prod --prefix KH_ENV_ -- terraform apply
+  kh kv run --workspace <uuid> -- ./deploy.sh
+  kh kv run --workspace prod --environment staging -- printenv`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return errors.New("a command to run is required after --")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.LoadWithEnv()
+			workspaceUUID, err := opts.resolve(cfg)
+			if err != nil {
+				return err
+			}
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+
+			// Start from the current process environment.
+			env := os.Environ()
+			for _, p := range resolveKVPairs(cmd, client, ctx, workspaceUUID, prefix, environment, encKey) {
+				env = append(env, p.Name+"="+p.Value)
+			}
+
+			bin, err := exec.LookPath(args[0])
+			if err != nil {
+				return fmt.Errorf("command not found: %s", args[0])
+			}
+			return syscall.Exec(bin, args, env)
+		},
+	}
+	cmd.Flags().StringVar(&environment, "environment", "", "Filter to keys tagged with this environment label")
+	cmd.Flags().StringVar(&prefix, "prefix", "", "Only include keys with this prefix; strip it from the variable name (e.g. KH_ENV_)")
 	return cmd
 }
