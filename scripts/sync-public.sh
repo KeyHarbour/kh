@@ -17,6 +17,7 @@ PUBLIC_REMOTE="public"
 PRIVATE_PATHS=(
   "API_IMPLEMENTATION_PROMPT.md"
   "CLAUDE.md"
+  "RELEASING.md"
   "TODO.md"
   "ADR.md"
   "adr"

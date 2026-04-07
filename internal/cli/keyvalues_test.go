@@ -33,15 +33,15 @@ func newKVTestServer(t *testing.T, kvHandler http.HandlerFunc) *httptest.Server 
 	// workspace resolution (list, for name-based lookup)
 	mux.HandleFunc("/api/v2/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]map[string]any{{"uuid": "ws-uuid", "name": "my-workspace"}})
+		json.NewEncoder(w).Encode([]map[string]any{{"uuid": "11111111-2222-3333-4444-555555555555", "name": "my-workspace"}})
 	})
 	// workspace detail
-	mux.HandleFunc("/api/v2/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/workspaces/11111111-2222-3333-4444-555555555555", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"uuid": "ws-uuid", "name": "my-workspace"})
+		json.NewEncoder(w).Encode(map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "name": "my-workspace"})
 	})
 	// kv collection endpoint (ls, set)
-	mux.HandleFunc("/api/v2/workspaces/ws-uuid/keyvalues", kvHandler)
+	mux.HandleFunc("/api/v2/workspaces/11111111-2222-3333-4444-555555555555/keyvalues", kvHandler)
 	// kv individual key endpoint (get, update, delete)
 	mux.HandleFunc("/api/v2/keyvalues/", kvHandler)
 
@@ -79,7 +79,7 @@ func TestKVList_TableOutput(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestKVList_JSONOutput(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "ws-uuid", "-o", "json")
+	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "-o", "json")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -144,6 +144,57 @@ func TestKVList_JSONOutput(t *testing.T) {
 	}
 	if len(items) != 1 || items[0]["key"] != "FOO" {
 		t.Errorf("unexpected items: %v", items)
+	}
+}
+
+func TestKVGet_PrintsRawValue(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"key": "MY_KEY", "value": "hello-world", "expires_at": nil, "private": false})
+	})
+
+	out, err := runKVCmd(t, srv, "get", "MY_KEY")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if strings.TrimSpace(out) != "hello-world" {
+		t.Errorf("expected raw value 'hello-world', got: %q", out)
+	}
+}
+
+func TestKVShow_PrintsTable(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"key": "MY_KEY", "value": "hello-world", "expires_at": nil, "private": false, "environment": "prod"})
+	})
+
+	out, err := runKVCmd(t, srv, "show", "MY_KEY")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, "MY_KEY") {
+		t.Errorf("expected KEY column in output, got: %s", out)
+	}
+	if !strings.Contains(out, "hello-world") {
+		t.Errorf("expected VALUE column in output, got: %s", out)
+	}
+	if !strings.Contains(out, "prod") {
+		t.Errorf("expected ENVIRONMENT column in output, got: %s", out)
+	}
+}
+
+func TestKVShow_JSONOutput(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"key": "MY_KEY", "value": "hello-world", "expires_at": nil, "private": false})
+	})
+
+	out, err := runKVCmd(t, srv, "show", "MY_KEY", "-o", "json")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, `"key"`) || !strings.Contains(out, `"value"`) {
+		t.Errorf("expected JSON object with key/value fields, got: %s", out)
 	}
 }
 
@@ -191,7 +242,7 @@ func TestKVSet_SendsCorrectPayload(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	})
 
-	_, err := runKVCmd(t, srv, "set", "NEW_KEY", "new-value", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	_, err := runKVCmd(t, srv, "set", "NEW_KEY", "new-value", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -295,7 +346,7 @@ func TestKVSet_EncryptsValueWhenKeyProvided(t *testing.T) {
 
 	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "plaintext",
-		"--project", "proj-uuid", "--workspace", "ws-uuid",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
 		"--encryption-key-file", keyFile,
 	)
 	if err != nil {
@@ -318,7 +369,7 @@ func TestKVSet_NoEncryptionWithoutKey(t *testing.T) {
 	})
 
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "plaintext",
-		"--project", "proj-uuid", "--workspace", "ws-uuid",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
 	)
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
@@ -335,7 +386,7 @@ func TestKVSet_InvalidEncryptionKeyFile(t *testing.T) {
 
 	keyFile := writeKeyFile(t, "tooshort")
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "value",
-		"--project", "proj-uuid", "--workspace", "ws-uuid",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
 		"--encryption-key-file", keyFile,
 	)
 	if err == nil {
@@ -423,7 +474,7 @@ func TestKVList_ShowsEncryptedLabelWithoutKey(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "ls", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -448,7 +499,7 @@ func TestKVList_DecryptsWithKey(t *testing.T) {
 
 	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
 	out, err := runKVCmd(t, srv, "ls",
-		"--project", "proj-uuid", "--workspace", "ws-uuid",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
 		"--encryption-key-file", keyFile,
 	)
 	if err != nil {
@@ -486,7 +537,7 @@ func TestKVSet_ValueFile(t *testing.T) {
 
 	vf := writeValueFile(t, "value-from-file")
 	_, err := runKVCmd(t, srv, "set", "FILE_KEY", "--value-file", vf,
-		"--project", "proj-uuid", "--workspace", "ws-uuid")
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -505,7 +556,7 @@ func TestKVSet_ValueFile_AndArgMutuallyExclusive(t *testing.T) {
 
 	vf := writeValueFile(t, "from-file")
 	_, err := runKVCmd(t, srv, "set", "MY_KEY", "direct-value", "--value-file", vf,
-		"--project", "proj-uuid", "--workspace", "ws-uuid")
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err == nil {
 		t.Fatal("expected error when both value arg and --value-file are provided")
 	}
@@ -517,7 +568,7 @@ func TestKVSet_NoValueReturnsError(t *testing.T) {
 	})
 
 	_, err := runKVCmd(t, srv, "set", "MY_KEY",
-		"--project", "proj-uuid", "--workspace", "ws-uuid")
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err == nil {
 		t.Fatal("expected error when neither value arg nor --value-file are provided")
 	}
@@ -601,7 +652,7 @@ func TestKVEnv_ExportFormat(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -621,7 +672,7 @@ func TestKVEnv_DotenvFormat(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--format", "dotenv")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "--format", "dotenv")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -642,7 +693,7 @@ func TestKVEnv_FilterByEnvironment(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--environment", "prod")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "--environment", "prod")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -662,7 +713,7 @@ func TestKVEnv_EscapesSingleQuotes(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -696,7 +747,7 @@ func TestKVEnv_SkipsEncryptedWithoutKey(t *testing.T) {
 	cmd.SetOut(outBuf)
 	cmd.SetErr(errBuf)
 	cmd.SetContext(context.Background())
-	cmd.SetArgs([]string{"env", "--project", "proj-uuid", "--workspace", "ws-uuid"})
+	cmd.SetArgs([]string{"env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -733,7 +784,7 @@ func TestKVRun_InjectsEnvVars(t *testing.T) {
 	// We can't use syscall.Exec in tests (it would replace the process), so
 	// this test verifies the command reaches exec by checking for "command not found"
 	// when the binary doesn't exist — the real injection is tested via integration.
-	cmd.SetArgs([]string{"run", "--project", "proj-uuid", "--workspace", "ws-uuid", "--", "nonexistent-binary-xyz"})
+	cmd.SetArgs([]string{"run", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "--", "nonexistent-binary-xyz"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for nonexistent binary")
@@ -745,7 +796,7 @@ func TestKVRun_InjectsEnvVars(t *testing.T) {
 
 func TestKVRun_RequiresCommand(t *testing.T) {
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
-	_, err := runKVCmd(t, srv, "run", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	_, err := runKVCmd(t, srv, "run", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err == nil {
 		t.Fatal("expected error when no command provided")
 	}
@@ -761,7 +812,7 @@ func TestKVEnv_PrefixFiltersAndStrips(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid", "--prefix", "KH_ENV_")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "--prefix", "KH_ENV_")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -791,7 +842,7 @@ func TestKVEnv_NoPrefixIncludesAll(t *testing.T) {
 		})
 	})
 
-	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "ws-uuid")
+	out, err := runKVCmd(t, srv, "env", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}

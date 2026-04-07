@@ -115,7 +115,7 @@ func newWorkspacesCreateCmd(opts *workspaceCmdOpts) *cobra.Command {
 func newWorkspacesUpdateCmd(opts *workspaceCmdOpts) *cobra.Command {
 	var name, description string
 	cmd := &cobra.Command{
-		Use:   "update <name-or-uuid>",
+		Use:   "update <uuid>",
 		Short: "Update a workspace name or description",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -165,7 +165,7 @@ func newWorkspacesUpdateCmd(opts *workspaceCmdOpts) *cobra.Command {
 func newWorkspacesDeleteCmd(opts *workspaceCmdOpts) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:   "delete <name-or-uuid>",
+		Use:   "delete <uuid>",
 		Short: "Delete a workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -202,11 +202,11 @@ func newWorkspacesDeleteCmd(opts *workspaceCmdOpts) *cobra.Command {
 
 func newWorkspacesShowCmd(opts *workspaceCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show <name-or-uuid>",
+		Use:   "show <uuid>",
 		Short: "Show workspace details",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("workspaces show requires exactly one argument: <name-or-uuid>")
+				return fmt.Errorf("workspaces show requires exactly one argument: <uuid>")
 			}
 			return nil
 		},

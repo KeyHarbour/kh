@@ -36,15 +36,15 @@ Commands that operate on a specific key (get, update, delete) only require the
 key name — no --project or --workspace flags needed.
 
 Commands that operate on the workspace collection (ls, set) require --workspace
-(or KH_WORKSPACE). If the workspace is identified by name rather than UUID,
---project (or KH_PROJECT) is also required for name resolution.`,
+(or KH_WORKSPACE) set to the workspace UUID.`,
 	}
-	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID or name (or KH_PROJECT)")
-	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID or name (or KH_WORKSPACE)")
+	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
+	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID (or KH_WORKSPACE)")
 	cmd.PersistentFlags().StringVar(&opts.encryptionKeyFile, "encryption-key-file", "", "Path to a file containing the hex-encoded 256-bit AES key (or KH_ENCRYPTION_KEY_FILE)")
 
 	cmd.AddCommand(newKVListCmd(opts))
 	cmd.AddCommand(newKVGetCmd(opts))
+	cmd.AddCommand(newKVShowCmd(opts))
 	cmd.AddCommand(newKVSetCmd(opts))
 	cmd.AddCommand(newKVUpdateCmd(opts))
 	cmd.AddCommand(newKVDeleteCmd(opts))
@@ -66,29 +66,14 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// If the workspace ref is already a UUID, resolve it directly — no project needed.
-	if looksLikeUUID(workspaceRef) {
-		ws, err := client.GetWorkspace(ctx, workspaceRef)
-		if err != nil {
-			return "", err
-		}
-		return ws.UUID, nil
+	if !looksLikeUUID(workspaceRef) {
+		return "", fmt.Errorf("workspace %q is not a valid UUID — workspace names are no longer supported, use the workspace UUID", workspaceRef)
 	}
-
-	// Name-based lookup requires a project reference.
-	projectRef := projectRefOrEnv(o.project, cfg)
-	if projectRef == "" {
-		return "", errors.New("--project is required when workspace is specified by name (or set KH_PROJECT)")
-	}
-	project, err := resolveProjectRef(ctx, client, projectRef)
+	ws, err := client.GetWorkspace(ctx, workspaceRef)
 	if err != nil {
 		return "", err
 	}
-	workspace, err := resolveWorkspaceRef(ctx, client, project.UUID, workspaceRef)
-	if err != nil {
-		return "", err
-	}
-	return workspace.UUID, nil
+	return ws.UUID, nil
 }
 
 func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
@@ -186,12 +171,11 @@ Examples:
 // ── get ───────────────────────────────────────────────────────────────────────
 
 func newKVGetCmd(opts *kvCmdOpts) *cobra.Command {
-	var format string
 	var reveal bool
 	cmd := &cobra.Command{
 		Use:   "get <key>",
-		Short: "Get a key/value by key name",
-		Long: `Retrieve a single key/value pair by its key name.
+		Short: "Print the raw value of a key",
+		Long: `Print only the raw value of a key/value pair — ideal for scripting.
 
 No --project or --workspace flags are required; the key name is globally unique
 within your token scope.
@@ -201,7 +185,64 @@ Private values are masked unless --reveal is passed.
 Examples:
   kh kv get MY_KEY
   kh kv get MY_SECRET --reveal
-  kh kv get MY_KEY -o json`,
+  export DB_URL=$(kh kv get DATABASE_URL)`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.LoadWithEnv()
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			kv, err := client.GetKeyValue(ctx, args[0])
+			if err != nil {
+				return err
+			}
+
+			encKey, err := opts.resolveEncryptionKey(cfg)
+			if err != nil {
+				return err
+			}
+
+			val := kv.Value
+			switch {
+			case kvencrypt.IsEncrypted(val) && encKey != nil:
+				plain, err := kvencrypt.Decrypt(*encKey, val)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, err)
+				}
+				val = plain
+			case kvencrypt.IsEncrypted(val):
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key-file or KH_ENCRYPTION_KEY_FILE to decrypt\n")
+			case kv.Private && !reveal:
+				val = "*** (use --reveal to show)"
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), val)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&reveal, "reveal", false, "Show value even if the key is private")
+	return cmd
+}
+
+// ── show ──────────────────────────────────────────────────────────────────────
+
+func newKVShowCmd(opts *kvCmdOpts) *cobra.Command {
+	var format string
+	var reveal bool
+	cmd := &cobra.Command{
+		Use:   "show <key>",
+		Short: "Show all properties of a key/value pair",
+		Long: `Show the full details of a key/value pair as a table or JSON object.
+
+No --project or --workspace flags are required; the key name is globally unique
+within your token scope.
+
+Private values are masked unless --reveal is passed.
+
+Examples:
+  kh kv show MY_KEY
+  kh kv show MY_SECRET --reveal
+  kh kv show MY_KEY -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
@@ -241,8 +282,8 @@ Examples:
 			if kv.ExpiresAt != nil {
 				exp = *kv.ExpiresAt
 			}
-			headers := []string{"KEY", "VALUE", "PRIVATE", "EXPIRES AT"}
-			return printer.Table(headers, [][]string{{kv.Key, val, fmt.Sprintf("%v", kv.Private), exp}})
+			headers := []string{"KEY", "VALUE", "PRIVATE", "ENVIRONMENT", "EXPIRES AT"}
+			return printer.Table(headers, [][]string{{kv.Key, val, fmt.Sprintf("%v", kv.Private), orDash(kv.Environment), exp}})
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")

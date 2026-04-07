@@ -1,3 +1,21 @@
+## v1.7.0 (2026-04-07)
+
+### Features
+* split get/show — get prints raw value, show prints full object (a309d30)
+* require workspace UUID; drop workspace name resolution (6c9abd4)
+
+### Maintenance
+* opt into Node.js 24 for all GitHub Actions (0c461d6)
+* pin actions to Node.js 24-compatible versions (734d0d3)
+* add trailing newline to openapi.yaml (347dc03)
+
+### Documentation
+* use bump-version.sh in RELEASING.md (8eecf4f)
+* add RELEASING.md (private, stripped from kh sync) (4be145c)
+* update README with license apps/users subcommands and CSV import (81b8223)
+
+---
+
 ## v1.6.0 (2026-04-07)
 
 ### Maintenance

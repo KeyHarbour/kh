@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"kh/internal/config"
 	"kh/internal/khclient"
@@ -51,25 +50,13 @@ func resolveProjectRef(ctx context.Context, client *khclient.Client, ref string)
 }
 
 func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUUID, ref string) (khclient.Workspace, error) {
-	if projectUUID == "" {
-		return khclient.Workspace{}, fmt.Errorf("project uuid is required to resolve workspace")
-	}
 	if ref == "" {
-		return khclient.Workspace{}, fmt.Errorf("workspace reference is required")
+		return khclient.Workspace{}, fmt.Errorf("workspace uuid is required")
 	}
-	if looksLikeUUID(ref) {
-		return client.GetWorkspace(ctx, ref)
+	if !looksLikeUUID(ref) {
+		return khclient.Workspace{}, fmt.Errorf("workspace %q is not a valid UUID — workspace names are no longer supported, use the workspace UUID", ref)
 	}
-	workspaces, err := client.ListWorkspaces(ctx, projectUUID)
-	if err != nil {
-		return khclient.Workspace{}, err
-	}
-	for _, w := range workspaces {
-		if strings.EqualFold(w.UUID, ref) || strings.EqualFold(w.Name, ref) {
-			return w, nil
-		}
-	}
-	return khclient.Workspace{}, fmt.Errorf("workspace %q not found in project %s", ref, projectUUID)
+	return client.GetWorkspace(ctx, ref)
 }
 
 func projectRefOrEnv(flagValue string, cfg config.Config) string {
