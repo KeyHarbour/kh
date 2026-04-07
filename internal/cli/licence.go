@@ -25,8 +25,6 @@ func newLicenseCmd() *cobra.Command {
 	cmd.AddCommand(newLicenseInstanceCmd())
 	cmd.AddCommand(newLicenseLicenseeCmd())
 	cmd.AddCommand(newLicenseTeamMemberCmd())
-	cmd.AddCommand(newAppsCmd())
-	cmd.AddCommand(newUsersCmd())
 	return cmd
 }
 
