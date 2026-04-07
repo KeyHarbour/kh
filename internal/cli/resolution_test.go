@@ -60,22 +60,23 @@ func TestResolveProjectRefByUUID(t *testing.T) {
 }
 
 func TestResolveWorkspaceRefByUUID(t *testing.T) {
+	const wsUUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/projects/p-1/workspaces":
+		case "/workspaces/" + wsUUID:
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]khclient.Workspace{{UUID: "w-1", Name: "default"}})
+			json.NewEncoder(w).Encode(khclient.Workspace{UUID: wsUUID, Name: "my-workspace"})
 		default:
 			http.NotFound(w, r)
 		}
 	})
 
 	client := khclient.New(config.Config{Endpoint: srv.URL})
-	ws, err := resolveWorkspaceRef(context.Background(), client, "p-1", "default")
+	ws, err := resolveWorkspaceRef(context.Background(), client, "p-1", wsUUID)
 	if err != nil {
 		t.Fatalf("expected nil err, got %v", err)
 	}
-	if ws.UUID != "w-1" {
+	if ws.UUID != wsUUID {
 		t.Fatalf("unexpected workspace: %+v", ws)
 	}
 }

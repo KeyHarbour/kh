@@ -29,15 +29,15 @@ func newWorkspacesTestServer(t *testing.T, wsHandler http.HandlerFunc) *httptest
 	mux.HandleFunc("/api/v2/projects/proj-uuid/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{{"uuid": "ws-uuid", "name": "my-workspace"}})
+			json.NewEncoder(w).Encode([]map[string]any{{"uuid": "11111111-2222-3333-4444-555555555555", "name": "my-workspace"}})
 			return
 		}
 		wsHandler(w, r)
 	})
-	mux.HandleFunc("/api/v2/workspaces/ws-uuid", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v2/workspaces/11111111-2222-3333-4444-555555555555", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"uuid": "ws-uuid", "name": "my-workspace", "description": "old-desc"})
+			json.NewEncoder(w).Encode(map[string]any{"uuid": "11111111-2222-3333-4444-555555555555", "name": "my-workspace", "description": "old-desc"})
 			return
 		}
 		wsHandler(w, r)
@@ -115,7 +115,7 @@ func TestWorkspacesUpdate_SendsCorrectPayload(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 	})
 
-	out, err := runWorkspacesCmd(t, srv, "update", "ws-uuid", "--project", "proj-uuid", "--name", "renamed")
+	out, err := runWorkspacesCmd(t, srv, "update", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid", "--name", "renamed")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestWorkspacesUpdate_RequiresAtLeastOneFlag(t *testing.T) {
 		t.Fatal("server should not be called")
 	})
 
-	_, err := runWorkspacesCmd(t, srv, "update", "ws-uuid", "--project", "proj-uuid")
+	_, err := runWorkspacesCmd(t, srv, "update", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid")
 	if err == nil {
 		t.Fatal("expected error when no --name or --description provided")
 	}
@@ -151,7 +151,7 @@ func TestWorkspacesDelete_RequiresForce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	_, _ = runWorkspacesCmd(t, srv, "delete", "my-workspace", "--project", "proj-uuid")
+	_, _ = runWorkspacesCmd(t, srv, "delete", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid")
 	if deleteCalled {
 		t.Fatal("DELETE should not be called without --force")
 	}
@@ -166,7 +166,7 @@ func TestWorkspacesDelete_WithForce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	_, err := runWorkspacesCmd(t, srv, "delete", "my-workspace", "--project", "proj-uuid", "--force")
+	_, err := runWorkspacesCmd(t, srv, "delete", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid", "--force")
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}

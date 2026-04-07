@@ -104,37 +104,36 @@ Bidirectional state transfer between any supported backends.
 
 ```zsh
 # From local file to KeyHarbour
-kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name>
+kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <workspace-uuid>
 
 # From HTTP backend to KeyHarbour
-kh tf sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <name>
+kh tf sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <workspace-uuid>
 
 # From Terraform Cloud to KeyHarbour (auto-create workspace if needed)
 kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
 
 # From KeyHarbour to local file
-kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
+kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <workspace-uuid> \
   --to=file --out ./backup.tfstate
 
 # From KeyHarbour to Terraform Cloud
-kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <name> \
+kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <workspace-uuid> \
   --to=tfc --dest-tfc-org <org> --dest-tfc-workspace <ws>
 
 # Between two KeyHarbour workspaces
-kh tf sync --from=keyharbour --src-project <proj1> --src-workspace <ws1> \
-  --to=keyharbour --project <proj2> --workspace <ws2> --create-workspace
+kh tf sync --from=keyharbour --src-project <proj1> --src-workspace <ws1-uuid> \
+  --to=keyharbour --project <proj2> --workspace <ws2-uuid> --create-workspace
 
 # Dry-run: preview what will be synced without writing
 kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --dry-run
 
 # Generate backend.hcl after a successful sync
-kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <name> \
+kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <workspace-uuid> \
   --gen-backend
 ```
 
 **Notes:**
 
-- Workspace names must be alphanumeric only. Names with hyphens or underscores are automatically sanitized with a warning.
 - Use `{workspace}` and `{key}` placeholders in `--out` for batch `--to=file` exports.
 
 ---
@@ -144,7 +143,7 @@ kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace 
 ```zsh
 # List all states
 kh tf state ls
-kh tf state ls --project <uuid> --workspace <name>
+kh tf state ls --project <uuid> --workspace <workspace-uuid>
 
 # Show a state's full Terraform JSON
 kh tf state show <state-id>
@@ -178,7 +177,7 @@ kh tf version get <statefile-uuid> --raw
 
 # Upload a new version
 kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
-terraform state pull | kh tf version push --project <uuid> --workspace prod --stdin
+terraform state pull | kh tf version push --project <uuid> --workspace <workspace-uuid> --stdin
 
 # Delete a specific version
 kh tf version rm <statefile-uuid>
@@ -193,17 +192,17 @@ kh tf version rm-all --project <uuid> --workspace <uuid> --force
 
 ```zsh
 kh workspace ls --project <uuid>
-kh workspace show <name-or-uuid> --project <uuid>
+kh workspace show <workspace-uuid> --project <uuid>
 kh workspace create <name> --project <uuid>
-kh workspace update <name-or-uuid> --project <uuid> --name <new-name>
-kh workspace delete <name-or-uuid> --project <uuid> --force
+kh workspace update <workspace-uuid> --project <uuid> --name <new-name>
+kh workspace delete <workspace-uuid> --project <uuid> --force
 ```
 
 ---
 
 ### Key/Value Management (`kh kv`)
 
-Commands acting on the workspace collection (`ls`, `set`) require `--workspace` (UUID, or name + `--project`).
+Commands acting on the workspace collection (`ls`, `set`) require `--workspace` (workspace UUID).
 Commands acting on a specific key (`get`, `update`, `delete`) only need the key name.
 
 ```zsh
@@ -228,19 +227,19 @@ kh kv update MY_KEY --value-file ./cert.pem
 kh kv delete MY_KEY --force
 
 # Inject all workspace KVs into the current shell
-eval $(kh kv env --workspace prod)
+eval $(kh kv env --workspace <workspace-uuid>)
 
 # Inject only keys prefixed with KH_ENV_, stripping the prefix
 # KH_ENV_DATABASE_URL → DATABASE_URL, KH_ENV_API_KEY → API_KEY
-eval $(kh kv env --workspace prod --prefix KH_ENV_)
+eval $(kh kv env --workspace <workspace-uuid> --prefix KH_ENV_)
 
 # Write a .env file
 kh kv env --workspace <uuid> --format dotenv > .env
 kh kv env --workspace <uuid> --prefix KH_ENV_ --format dotenv > .env
 
 # Run a command with workspace KVs in its environment (safer than eval)
-kh kv run --workspace prod -- terraform apply
-kh kv run --workspace prod --prefix KH_ENV_ -- terraform apply
+kh kv run --workspace <workspace-uuid> -- terraform apply
+kh kv run --workspace <workspace-uuid> --prefix KH_ENV_ -- terraform apply
 kh kv run --workspace <uuid> --environment staging -- ./deploy.sh
 ```
 
@@ -266,7 +265,8 @@ export KH_ENCRYPTION_KEY_FILE=~/.kh/enc.key
 
 Manage software applications, their instances, licensees, and team members.
 
-**Applications**
+#### Applications
+
 ```zsh
 kh license ls
 kh license show <uuid>
@@ -276,7 +276,8 @@ kh license update <uuid> --status disabled --unit-cost 5.99
 kh license delete <uuid> --force
 ```
 
-**Instances** (deployments of an application)
+#### Instances (deployments of an application)
+
 ```zsh
 kh license instance ls <app-uuid>
 kh license instance show <instance-uuid>
@@ -286,7 +287,8 @@ kh license instance update <instance-uuid> --status disabled --seats 50
 kh license instance delete <instance-uuid> --force
 ```
 
-**Licensees** (users assigned to an instance)
+#### Licensees (users assigned to an instance)
+
 ```zsh
 kh license licensee ls <instance-uuid>
 kh license licensee show <licensee-uuid>
@@ -295,13 +297,26 @@ kh license licensee update <licensee-uuid> --status inactive
 kh license licensee delete <licensee-uuid> --force
 ```
 
-**Team Members** (organisation-wide member registry)
+#### Team Members (organisation-wide member registry)
+
 ```zsh
 kh license team-member ls
 kh license team-member show <uuid>
 kh license team-member add <uuid>
 kh license team-member update <uuid> --manager-uuid <manager-uuid>
 kh license team-member delete <uuid> --force
+```
+
+#### Bulk Import from CSV
+
+```zsh
+# Import applications — required columns: name, short_name, owner, vendor
+# Optional columns: renewal_date, tier, seats, unit_cost
+kh license apps import applications.csv
+
+# Import team members — required column: uuid
+# Optional column: manager_uuid
+kh license users import members.csv
 ```
 
 ---
