@@ -1,3 +1,10 @@
+## v1.6.0 (2026-04-07)
+
+### Maintenance
+* sync public release v1.5.0 (#11) (e652c8d)
+
+---
+
 ## v1.5.0 (2026-04-04)
 
 ### Features
