@@ -1,3 +1,90 @@
+## v1.8.1 (2026-04-08)
+
+### Features
+* move license apps import to kh license import; add full test coverage (be51949)
+* split get/show — get prints raw value, show prints full object (a309d30)
+* require workspace UUID; drop workspace name resolution (6c9abd4)
+
+### Maintenance
+* bump version to v1.8.0 (daf386b)
+* bump version to v1.8.0 (8be2dd0)
+* default all integration workflow environments to prod (0868c5e)
+* default workflow_dispatch environment to prod (2492758)
+* default diagnostics environment to prod (d2806dc)
+* upgrade GitHub Actions to Node.js 24-native versions (be6fe45)
+* fix integration workflow triggers and malformed YAML (86df554)
+* automate release flow (make release, gh pr create) (1f6fe2d)
+* bump version to v1.7.0 (414a14e)
+* opt into Node.js 24 for all GitHub Actions (0c461d6)
+* pin actions to Node.js 24-compatible versions (734d0d3)
+* add trailing newline to openapi.yaml (347dc03)
+
+### Documentation
+* remove kh license apps import from bulk import section (bbba8e8)
+* use bump-version.sh in RELEASING.md (8eecf4f)
+* add RELEASING.md (private, stripped from kh sync) (4be145c)
+* update README with license apps/users subcommands and CSV import (81b8223)
+
+---
+
+## v1.8.0 (2026-04-08)
+
+### Features
+* move license apps import to kh license import; add full test coverage (be51949)
+* split get/show — get prints raw value, show prints full object (a309d30)
+* require workspace UUID; drop workspace name resolution (6c9abd4)
+
+### Maintenance
+* bump version to v1.8.0 (daf386b)
+* bump version to v1.8.0 (8be2dd0)
+* default all integration workflow environments to prod (0868c5e)
+* default workflow_dispatch environment to prod (2492758)
+* default diagnostics environment to prod (d2806dc)
+* upgrade GitHub Actions to Node.js 24-native versions (be6fe45)
+* fix integration workflow triggers and malformed YAML (86df554)
+* automate release flow (make release, gh pr create) (1f6fe2d)
+* bump version to v1.7.0 (414a14e)
+* opt into Node.js 24 for all GitHub Actions (0c461d6)
+* pin actions to Node.js 24-compatible versions (734d0d3)
+* add trailing newline to openapi.yaml (347dc03)
+
+### Documentation
+* remove kh license apps import from bulk import section (bbba8e8)
+* use bump-version.sh in RELEASING.md (8eecf4f)
+* add RELEASING.md (private, stripped from kh sync) (4be145c)
+* update README with license apps/users subcommands and CSV import (81b8223)
+
+---
+
+## v1.6.0 (2026-04-08)
+
+### Features
+* move license apps import to kh license import; add full test coverage (be51949)
+* split get/show — get prints raw value, show prints full object (a309d30)
+* require workspace UUID; drop workspace name resolution (6c9abd4)
+
+### Maintenance
+* bump version to v1.8.0 (daf386b)
+* bump version to v1.8.0 (8be2dd0)
+* default all integration workflow environments to prod (0868c5e)
+* default workflow_dispatch environment to prod (2492758)
+* default diagnostics environment to prod (d2806dc)
+* upgrade GitHub Actions to Node.js 24-native versions (be6fe45)
+* fix integration workflow triggers and malformed YAML (86df554)
+* automate release flow (make release, gh pr create) (1f6fe2d)
+* bump version to v1.7.0 (414a14e)
+* opt into Node.js 24 for all GitHub Actions (0c461d6)
+* pin actions to Node.js 24-compatible versions (734d0d3)
+* add trailing newline to openapi.yaml (347dc03)
+
+### Documentation
+* remove kh license apps import from bulk import section (bbba8e8)
+* use bump-version.sh in RELEASING.md (8eecf4f)
+* add RELEASING.md (private, stripped from kh sync) (4be145c)
+* update README with license apps/users subcommands and CSV import (81b8223)
+
+---
+
 ## v1.8.0 (2026-04-08)
 
 ### Features
