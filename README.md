@@ -310,10 +310,6 @@ kh license team-member delete <uuid> --force
 #### Bulk Import from CSV
 
 ```zsh
-# Import applications — required columns: name, short_name, owner, vendor
-# Optional columns: renewal_date, tier, seats, unit_cost
-kh license apps import applications.csv
-
 # Import team members — required column: uuid
 # Optional column: manager_uuid
 kh license users import members.csv
