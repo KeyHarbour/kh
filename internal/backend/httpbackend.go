@@ -8,13 +8,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
-type HTTPReader struct {
-	URL string
+// newHTTPClient returns an HTTP client with a 30-second timeout.
+// All backend HTTP clients should use this instead of http.DefaultClient,
+// which has no timeout and will hang indefinitely on a stalled connection.
+func newHTTPClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second}
 }
 
-func NewHTTPReader(url string) *HTTPReader { return &HTTPReader{URL: url} }
+type HTTPReader struct {
+	URL  string
+	HTTP *http.Client
+}
+
+func NewHTTPReader(url string) *HTTPReader { return &HTTPReader{URL: url, HTTP: newHTTPClient()} }
 
 func (r *HTTPReader) List(ctx context.Context) ([]Object, error) {
 	b, obj, err := r.Get(ctx, r.URL)
@@ -30,7 +39,7 @@ func (r *HTTPReader) Get(ctx context.Context, key string) ([]byte, Object, error
 	if err != nil {
 		return nil, Object{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.HTTP.Do(req)
 	if err != nil {
 		return nil, Object{}, err
 	}
@@ -50,11 +59,14 @@ func (r *HTTPReader) Get(ctx context.Context, key string) ([]byte, Object, error
 type HTTPWriter struct {
 	URL     string
 	Headers map[string]string
+	HTTP    *http.Client
 }
 
-func NewHTTPWriter(url string) *HTTPWriter { return &HTTPWriter{URL: url} }
+func NewHTTPWriter(url string) *HTTPWriter {
+	return &HTTPWriter{URL: url, HTTP: newHTTPClient()}
+}
 func NewHTTPWriterWithHeaders(url string, headers map[string]string) *HTTPWriter {
-	return &HTTPWriter{URL: url, Headers: headers}
+	return &HTTPWriter{URL: url, Headers: headers, HTTP: newHTTPClient()}
 }
 
 func (w *HTTPWriter) Put(ctx context.Context, key string, data []byte, overwrite bool) (Object, error) {
@@ -70,7 +82,7 @@ func (w *HTTPWriter) Put(ctx context.Context, key string, data []byte, overwrite
 	for k, v := range w.Headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := w.HTTP.Do(req)
 	if err != nil {
 		return Object{}, err
 	}

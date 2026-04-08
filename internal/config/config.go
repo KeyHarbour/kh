@@ -77,7 +77,7 @@ func Save(cfg Config) error {
 		return err
 	}
 	dir := filepath.Dir(p)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(cfg, "", "  ")
@@ -111,6 +111,11 @@ func LoadWithEnv() (Config, error) {
 	}
 	if v := os.Getenv("KH_CONCURRENCY"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
+			if n < 1 {
+				n = 1
+			} else if n > 64 {
+				n = 64
+			}
 			cfg.Concurrency = n
 		}
 	}
