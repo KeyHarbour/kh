@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -113,7 +114,10 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 		wait = defaultRetryWait
 	}
 	backoff := 1 << attempt
-	return time.Duration(backoff) * wait
+	base := time.Duration(backoff) * wait
+	// Add ±20% jitter to spread retries under load and avoid thundering herd.
+	jitter := time.Duration(rand.Int63n(int64(base/5)*2+1) - int64(base/5))
+	return base + jitter
 }
 
 func shouldRetryErr(err error) bool {

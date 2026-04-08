@@ -1,4 +1,4 @@
-.PHONY: tidy build run test test-coverage coverage-report vet fmt clean install uninstall snapshot regression diagnostics
+.PHONY: tidy build run test test-coverage coverage-report vet fmt clean install uninstall snapshot regression diagnostics release
 
 BINARY := bin/kh
 PREFIX ?= /usr/local
@@ -55,6 +55,17 @@ build-cross:
 release-local: build-cross
 	# run goreleaser in snapshot mode to produce dist/ (requires goreleaser installed)
 	goreleaser release --snapshot --rm-dist
+
+# Bump version, commit, and open a sync PR on KeyHarbour/kh.
+# Usage: make release          (auto-detect bump from commits)
+#        make release V=1.8.0  (explicit version)
+release:
+	@./scripts/bump-version.sh $(if $(V),$(V),)
+	@echo "Review CHANGELOG.md, then press Enter to commit and sync (Ctrl-C to abort)." && read _
+	git add VERSION CHANGELOG.md
+	git commit -m "chore: bump version to v$$(cat VERSION)"
+	git push
+	./scripts/sync-public.sh sync/v$$(cat VERSION)
 
 # ---------------------------------------------------------------------------
 # Integration tests (require KH_ENDPOINT and KH_TOKEN to be set)

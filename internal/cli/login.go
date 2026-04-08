@@ -52,3 +52,26 @@ func newLoginCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&device, "device", false, "Use OIDC device code flow")
 	return cmd
 }
+
+func newLogoutCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout",
+		Short: "Remove the stored API token from the local config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if cfg.Token == "" {
+				fmt.Fprintln(cmd.OutOrStdout(), "already logged out")
+				return nil
+			}
+			cfg.Token = ""
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "logged out")
+			return nil
+		},
+	}
+}

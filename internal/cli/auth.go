@@ -8,6 +8,7 @@ func newAuthCmd() *cobra.Command {
 		Short: "Authenticate and manage identity",
 	}
 	cmd.AddCommand(newLoginCmd())
+	cmd.AddCommand(newLogoutCmd())
 	cmd.AddCommand(newWhoamiCmd())
 	return cmd
 }

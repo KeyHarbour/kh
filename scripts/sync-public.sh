@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# sync-public.sh — Creates a filtered sync branch from cli/main to push to KeyHarbour/kh (public).
+# sync-public.sh — Creates a filtered sync branch from cli/main to push to KeyHarbour/kh (public)
+#                  and opens a PR automatically via the GitHub CLI (gh).
 #
 # Usage:
 #   ./scripts/sync-public.sh              # branch name: sync/YYYY-MM-DD
 #   ./scripts/sync-public.sh sync/v0.10.0 # custom branch name
 #
-# After running, open a PR on KeyHarbour/kh and squash merge it.
+# Prerequisites: gh CLI authenticated (gh auth login)
 
 set -euo pipefail
 
 BRANCH="${1:-sync/$(date +%Y-%m-%d)}"
 PUBLIC_REMOTE="public"
+PUBLIC_REPO="KeyHarbour/kh"
 
 # Files and directories stripped from the public repo.
 # Add paths here to keep them private in kh-cli.
@@ -42,6 +44,16 @@ PRIVATE_PATHS=(
 if ! git remote get-url "$PUBLIC_REMOTE" &>/dev/null; then
   echo "Error: remote '$PUBLIC_REMOTE' not found."
   echo "Add it with: git remote add public https://github.com/KeyHarbour/kh.git"
+  exit 1
+fi
+
+if ! command -v gh &>/dev/null; then
+  echo "Error: 'gh' CLI not found. Install it with: brew install gh"
+  exit 1
+fi
+
+if ! gh auth status &>/dev/null; then
+  echo "Error: not authenticated with gh. Run: gh auth login"
   exit 1
 fi
 
@@ -110,9 +122,23 @@ git push "$PUBLIC_REMOTE" "$BRANCH"
 
 git checkout main
 
+# ── Open PR on KeyHarbour/kh ─────────────────────────────────────────────────
+
+VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
+
 echo ""
-echo "Done. Open a PR at:"
-echo "  https://github.com/KeyHarbour/kh/compare/$BRANCH"
+echo "Opening PR on ${PUBLIC_REPO}..."
+gh pr create \
+  --repo "$PUBLIC_REPO" \
+  --head "$BRANCH" \
+  --base main \
+  --title "chore: sync public release v${VERSION}" \
+  --body "Automated sync from private CLI repo.
+
+**Version:** v${VERSION}
+**Merge strategy:** Squash and merge
+**Suggested commit message:** \`feat(cli): <short description of what's new>\`"
+
 echo ""
-echo "When merging, choose 'Squash and merge' and set the commit message to a"
-echo "clean conventional commit (e.g. 'feat(cli): ...')."
+echo "PR opened. Review it, update the squash commit message, then merge."
+echo "After merge, the auto-tag workflow will create v${VERSION} and trigger GoReleaser."

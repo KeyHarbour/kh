@@ -61,6 +61,7 @@ func runKVCmd(t *testing.T, srv *httptest.Server, args ...string) (string, error
 	cmd := newKVCmd()
 	cmd.SetOut(buf)
 	cmd.SetErr(io.Discard)
+	cmd.SetIn(strings.NewReader("")) // non-*os.File reader: confirmReveal skips prompt in tests
 	cmd.SetContext(context.Background())
 	cmd.SetArgs(args)
 	err := cmd.Execute()

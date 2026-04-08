@@ -28,7 +28,7 @@ func NewTFCReader(host, org, workspace, token string) *TFCReader {
 		Org:       org,
 		Workspace: workspace,
 		Token:     token,
-		HTTP:      http.DefaultClient,
+		HTTP:      newHTTPClient(),
 	}
 }
 

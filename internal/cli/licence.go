@@ -2,7 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"time"
 
 	"kh/internal/config"
@@ -22,10 +26,10 @@ func newLicenseCmd() *cobra.Command {
 	cmd.AddCommand(newLicenseCreateCmd())
 	cmd.AddCommand(newLicenseUpdateCmd())
 	cmd.AddCommand(newLicenseDeleteCmd())
+	cmd.AddCommand(newLicenseImportCmd())
 	cmd.AddCommand(newLicenseInstanceCmd())
 	cmd.AddCommand(newLicenseLicenseeCmd())
 	cmd.AddCommand(newLicenseTeamMemberCmd())
-	cmd.AddCommand(newAppsCmd())
 	cmd.AddCommand(newUsersCmd())
 	return cmd
 }
@@ -243,6 +247,92 @@ func newLicenseDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Confirm deletion without prompting")
+	return cmd
+}
+
+// ── import ────────────────────────────────────────────────────────────────────
+
+// newLicenseImportCmd imports applications from a CSV file.
+//
+// Expected columns (header row required):
+//
+//	name, short_name, owner, vendor, renewal_date, tier, seats, unit_cost
+//
+// Only name, short_name, owner, and vendor are required; the rest are optional.
+func newLicenseImportCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "import <file.csv>",
+		Short: "Import license records from a CSV file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			f, err := os.Open(args[0])
+			if err != nil {
+				return fmt.Errorf("open %s: %w", args[0], err)
+			}
+			defer f.Close()
+
+			r := csv.NewReader(f)
+			r.TrimLeadingSpace = true
+
+			header, err := r.Read()
+			if err != nil {
+				return fmt.Errorf("read header: %w", err)
+			}
+			idx := csvIndex(header)
+
+			cfg, _ := config.LoadWithEnv()
+			client := khclient.New(cfg)
+
+			var created, skipped int
+			for line := 2; ; line++ {
+				record, err := r.Read()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return fmt.Errorf("line %d: %w", line, err)
+				}
+
+				req := khclient.CreateApplicationRequest{
+					Name:        csvField(record, idx, "name"),
+					ShortName:   csvField(record, idx, "short_name"),
+					Owner:       csvField(record, idx, "owner"),
+					Vendor:      csvField(record, idx, "vendor"),
+					RenewalDate: csvField(record, idx, "renewal_date"),
+					Tier:        csvField(record, idx, "tier"),
+				}
+				if req.Name == "" || req.ShortName == "" || req.Owner == "" || req.Vendor == "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: skipping row — name, short_name, owner, vendor are required\n", line)
+					skipped++
+					continue
+				}
+				if s := csvField(record, idx, "seats"); s != "" {
+					if n, err := strconv.Atoi(s); err == nil {
+						req.Seats = &n
+					}
+				}
+				if s := csvField(record, idx, "unit_cost"); s != "" {
+					if f, err := strconv.ParseFloat(s, 64); err == nil {
+						req.UnitCost = &f
+					}
+				}
+
+				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+				err = client.CreateApplication(ctx, req)
+				cancel()
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: %s — %v\n", line, req.Name, err)
+					skipped++
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "created: %s\n", req.Name)
+				created++
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%d created, %d skipped\n", created, skipped)
+			return nil
+		},
+	}
 	return cmd
 }
 

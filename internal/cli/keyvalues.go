@@ -76,6 +76,27 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	return ws.UUID, nil
 }
 
+// confirmReveal prompts the user before displaying a private value.
+// The prompt is only shown when cmd.InOrStdin() is a real TTY (*os.File with
+// ModeCharDevice). Pipes, redirects, and test readers skip the prompt and
+// return true so that scripts and non-interactive callers are never blocked.
+func confirmReveal(cmd *cobra.Command, key string) bool {
+	in := cmd.InOrStdin()
+	f, ok := in.(*os.File)
+	if !ok {
+		return true // not a real file (e.g. test reader) — skip prompt
+	}
+	fi, err := f.Stat()
+	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		return true // pipe, regular file, etc. — skip prompt
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Reveal private value for %q? [y/N] ", key)
+	buf := make([]byte, 256)
+	n, _ := f.Read(buf)
+	answer := strings.TrimSpace(string(buf[:n]))
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")
+}
+
 func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
 	keyFile := o.encryptionKeyFile
 	if keyFile == "" {
@@ -83,6 +104,13 @@ func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
 	}
 	if keyFile == "" {
 		return nil, nil // encryption not requested
+	}
+	// Warn if the key file is readable by anyone other than the owner.
+	// A world- or group-readable key file silently compromises all encrypted values.
+	if fi, err := os.Stat(keyFile); err == nil {
+		if fi.Mode().Perm()&0o077 != 0 {
+			fmt.Fprintf(os.Stderr, "warning: encryption key file %q has permissions %04o — expected 0400 or 0600\n", keyFile, fi.Mode().Perm())
+		}
 	}
 	data, err := os.ReadFile(keyFile)
 	if err != nil {
@@ -203,6 +231,10 @@ Examples:
 				return err
 			}
 
+			if kv.Private && reveal && !confirmReveal(cmd, args[0]) {
+				return nil
+			}
+
 			val := kv.Value
 			switch {
 			case kvencrypt.IsEncrypted(val) && encKey != nil:
@@ -263,6 +295,10 @@ Examples:
 			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(kv)
+			}
+
+			if kv.Private && reveal && !confirmReveal(cmd, args[0]) {
+				return nil
 			}
 
 			val := kv.Value

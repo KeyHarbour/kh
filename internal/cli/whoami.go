@@ -28,8 +28,8 @@ func newWhoamiCmd() *cobra.Command {
 }
 
 func mask(s string) string {
-	if len(s) <= 6 {
-		return "******"
+	if len(s) <= 3 {
+		return "***"
 	}
-	return s[:3] + "***" + s[len(s)-3:]
+	return s[:3] + "***"
 }
