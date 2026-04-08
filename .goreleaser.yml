@@ -47,7 +47,7 @@ archives:
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 
-brews:
+homebrew_casks:
   - name: kh
     homepage: "https://keyharbour.ca"
     description: "Official CLI for KeyHarbour — self-hosted Terraform state backend"
@@ -57,11 +57,8 @@ brews:
       name: homebrew-tap
       branch: main
       token: "{{ .Env.GH_PAT }}"
-    directory: Formula
-    install: |
-      bin.install "kh"
-    test: |
-      system "#{bin}/kh", "--version"
+    binaries:
+      - kh
     commit_author:
       name: github-actions[bot]
       email: github-actions[bot]@users.noreply.github.com
