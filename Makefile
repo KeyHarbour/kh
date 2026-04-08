@@ -64,7 +64,9 @@ release:
 	@echo "Review CHANGELOG.md, then press Enter to commit and sync (Ctrl-C to abort)." && read _
 	git add VERSION CHANGELOG.md
 	git commit -m "chore: bump version to v$$(cat VERSION)"
+	git tag "v$$(cat VERSION)"
 	git push
+	git push origin "v$$(cat VERSION)"
 	./scripts/sync-public.sh sync/v$$(cat VERSION)
 
 # ---------------------------------------------------------------------------
