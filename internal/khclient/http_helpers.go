@@ -58,10 +58,10 @@ func parseAPIError(resp *http.Response) error {
 	if len(payload.Errors) > 0 {
 		msg = strings.Join(payload.Errors, "; ")
 	}
-	// Add helpful hints for common 422 errors
+	// Add helpful hints for common 422 errors where the API gives no detail.
 	if resp.StatusCode == 422 && msg == "" {
 		if payload.Status == "unprocessable_entity" {
-			msg = "validation failed (check: workspace name must be alphanumeric, environment must match project environments)"
+			msg = "validation failed"
 		}
 	}
 	bodySnippet := strings.TrimSpace(string(data))
