@@ -1,3 +1,17 @@
+## v1.8.6 (2026-04-09)
+
+### Maintenance
+* chore(doc):adr-0005 (a8b807e)
+
+---
+
+## v1.8.5 (2026-04-09)
+
+### Bug Fixes
+* detect duplicate key on set and surface actionable error (05d7096)
+
+---
+
 ## v1.8.4 (2026-04-08)
 
 ### Features
