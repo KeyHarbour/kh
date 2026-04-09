@@ -402,7 +402,6 @@ Examples:
 			if err := client.CreateKeyValue(ctx, workspaceUUID, req); err != nil {
 				var apiErr khclient.APIError
 				if errors.As(err, &apiErr) && apiErr.StatusCode == 422 {
-					// Check if the key already exists to give a targeted message.
 					if _, getErr := client.GetKeyValue(ctx, args[0]); getErr == nil {
 						return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("key %q already exists — use 'kh kv update %s --value <value>' to change it", args[0], args[0]))
 					}
