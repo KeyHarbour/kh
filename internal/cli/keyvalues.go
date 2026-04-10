@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -74,6 +75,33 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 		return "", err
 	}
 	return ws.UUID, nil
+}
+
+// parseExpiresIn converts a human duration string (e.g. "30d", "4h", "1y", "30m")
+// into an ISO 8601 timestamp relative to now.
+func parseExpiresIn(s string) (string, error) {
+	if len(s) < 2 {
+		return "", fmt.Errorf("invalid --expires-in %q: expected format like 30d, 4h, 1y, 30m", s)
+	}
+	unit := s[len(s)-1]
+	n, err := strconv.Atoi(s[:len(s)-1])
+	if err != nil || n <= 0 {
+		return "", fmt.Errorf("invalid --expires-in %q: expected a positive integer followed by y, d, h, or m", s)
+	}
+	var d time.Duration
+	switch unit {
+	case 'y':
+		d = time.Duration(n) * 365 * 24 * time.Hour
+	case 'd':
+		d = time.Duration(n) * 24 * time.Hour
+	case 'h':
+		d = time.Duration(n) * time.Hour
+	case 'm':
+		d = time.Duration(n) * time.Minute
+	default:
+		return "", fmt.Errorf("invalid --expires-in %q: unit must be y (years), d (days), h (hours), or m (minutes)", s)
+	}
+	return time.Now().UTC().Add(d).Format(time.RFC3339), nil
 }
 
 func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
@@ -303,6 +331,7 @@ Examples:
 func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 	var private bool
 	var expiresAt string
+	var expiresIn string
 	var valueFile string
 	cmd := &cobra.Command{
 		Use:   "set <key> [value]",
@@ -318,7 +347,8 @@ The value can be provided as a positional argument or read from a file with
 Examples:
   kh kv set MY_KEY my-value --workspace <uuid>
   kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
-  kh kv set TEMP_KEY value --workspace prod --project <uuid> --expires-at 2026-12-31T00:00:00Z
+  kh kv set TEMP_KEY value --workspace <uuid> --expires-in 30d
+  kh kv set TEMP_KEY value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
   kh kv set CERT --value-file ./cert.pem --workspace <uuid>`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -329,6 +359,16 @@ Examples:
 			}
 			if !hasValueArg && !hasValueFile {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("a value is required: provide it as an argument or via --value-file"))
+			}
+			if cmd.Flags().Changed("expires-at") && cmd.Flags().Changed("expires-in") {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either --expires-at or --expires-in, not both"))
+			}
+			if expiresIn != "" {
+				parsed, err := parseExpiresIn(expiresIn)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, err)
+				}
+				expiresAt = parsed
 			}
 
 			cfg, _ := config.LoadWithEnv()
@@ -385,6 +425,7 @@ Examples:
 	}
 	cmd.Flags().BoolVar(&private, "private", false, "Mark the value as private (masked in list output)")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
+	cmd.Flags().StringVar(&expiresIn, "expires-in", "", "Expiry as a duration from now (e.g. 1y, 30d, 4h, 30m)")
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read value from a file instead of a positional argument")
 	return cmd
 }
@@ -396,6 +437,7 @@ func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 	var valueFile string
 	var private string // "true"|"false"|"" (unset = don't change)
 	var expiresAt string
+	var expiresIn string
 	cmd := &cobra.Command{
 		Use:   "update <key>",
 		Short: "Create or update a key/value",
@@ -413,6 +455,7 @@ Examples:
   kh kv update MY_KEY --value new-value
   kh kv update MY_KEY --value-file ./cert.pem
   kh kv update MY_KEY --value new-value --private true
+  kh kv update MY_KEY --value new-value --expires-in 7d
   kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z
   kh kv update MY_KEY --value new-value --workspace <uuid>`,
 		Args: cobra.RangeArgs(1, 2),
@@ -420,6 +463,16 @@ Examples:
 			hasValueArg := len(args) == 2
 			hasValue := cmd.Flags().Changed("value")
 			hasValueFile := cmd.Flags().Changed("value-file")
+			if cmd.Flags().Changed("expires-at") && cmd.Flags().Changed("expires-in") {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either --expires-at or --expires-in, not both"))
+			}
+			if expiresIn != "" {
+				parsed, err := parseExpiresIn(expiresIn)
+				if err != nil {
+					return exitcodes.With(exitcodes.ValidationError, err)
+				}
+				expiresAt = parsed
+			}
 			if hasValueArg && hasValue {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either a positional value or --value, not both"))
 			}
@@ -511,6 +564,7 @@ Examples:
 	cmd.Flags().StringVar(&private, "private", "", "Set private flag: true|false (bare --private means true)")
 	cmd.Flag("private").NoOptDefVal = "true"
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
+	cmd.Flags().StringVar(&expiresIn, "expires-in", "", "Expiry as a duration from now (e.g. 1y, 30d, 4h, 30m)")
 	return cmd
 }
 
