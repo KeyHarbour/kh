@@ -1,3 +1,10 @@
+## v1.9.1 (2026-04-10)
+
+### Bug Fixes
+* Updating openapi spec (0b87990)
+
+---
+
 ## v1.9.0 (2026-04-09)
 
 ### Features

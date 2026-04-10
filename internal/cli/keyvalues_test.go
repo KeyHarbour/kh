@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"kh/internal/kvencrypt"
 )
@@ -61,7 +62,7 @@ func runKVCmd(t *testing.T, srv *httptest.Server, args ...string) (string, error
 	cmd := newKVCmd()
 	cmd.SetOut(buf)
 	cmd.SetErr(io.Discard)
-	cmd.SetIn(strings.NewReader("")) // non-*os.File reader: confirmReveal skips prompt in tests
+	cmd.SetIn(strings.NewReader(""))
 	cmd.SetContext(context.Background())
 	cmd.SetArgs(args)
 	err := cmd.Execute()
@@ -636,6 +637,214 @@ func TestKVUpdate_ValueFile_AndFlagMutuallyExclusive(t *testing.T) {
 	_, err := runKVCmd(t, srv, "update", "MY_KEY", "--value", "direct", "--value-file", vf)
 	if err == nil {
 		t.Fatal("expected error when both --value and --value-file are provided")
+	}
+}
+
+func TestKVUpdate_PositionalArg(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "new-value")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), `"value":"new-value"`) {
+		t.Errorf("expected positional value in body, got: %s", bodyBytes)
+	}
+}
+
+func TestKVUpdate_PositionalArg_AndValueFlagMutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "pos-value", "--value", "flag-value")
+	if err == nil {
+		t.Fatal("expected error when both positional value and --value are provided")
+	}
+}
+
+func TestKVUpdate_PositionalArg_AndValueFileMutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	vf := writeValueFile(t, "from-file")
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "pos-value", "--value-file", vf)
+	if err == nil {
+		t.Fatal("expected error when both positional value and --value-file are provided")
+	}
+}
+
+func TestKVUpdate_NoValueReturnsError(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY")
+	if err == nil {
+		t.Fatal("expected error when no value is provided")
+	}
+}
+
+func TestKVUpdate_BarePrivateFlag(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "new-value", "--private")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(string(bodyBytes), `"private":true`) {
+		t.Errorf("expected private:true in body with bare --private, got: %s", bodyBytes)
+	}
+}
+
+// ── expires-in ────────────────────────────────────────────────────────────────
+
+func TestParseExpiresIn_Valid(t *testing.T) {
+	cases := []struct {
+		input string
+		unit  time.Duration
+		n     int
+	}{
+		{"1y", 365 * 24 * time.Hour, 1},
+		{"30d", 24 * time.Hour, 30},
+		{"4h", time.Hour, 4},
+		{"30m", time.Minute, 30},
+	}
+	for _, tc := range cases {
+		before := time.Now().UTC()
+		got, err := parseExpiresIn(tc.input)
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.input, err)
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, got)
+		if err != nil {
+			t.Errorf("%s: result is not RFC3339: %v", tc.input, err)
+			continue
+		}
+		expected := before.Add(time.Duration(tc.n) * tc.unit)
+		diff := parsed.Sub(expected)
+		if diff < -time.Second || diff > time.Second {
+			t.Errorf("%s: expected ~%v, got %v", tc.input, expected, parsed)
+		}
+	}
+}
+
+func TestParseExpiresIn_Invalid(t *testing.T) {
+	cases := []string{"", "x", "0d", "-1h", "30", "30x", "abc"}
+	for _, input := range cases {
+		_, err := parseExpiresIn(input)
+		if err == nil {
+			t.Errorf("expected error for input %q, got nil", input)
+		}
+	}
+}
+
+func TestKVSet_ExpiresIn_SendsISO8601(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	before := time.Now().UTC()
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "val",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
+		"--expires-in", "1d",
+	)
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("invalid body JSON: %v", err)
+	}
+	raw, ok := body["expires_at"].(string)
+	if !ok || raw == "" {
+		t.Fatalf("expected expires_at in body, got: %s", bodyBytes)
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("expires_at is not RFC3339: %v", err)
+	}
+	expected := before.Add(24 * time.Hour)
+	diff := parsed.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected expires_at ~%v, got %v", expected, parsed)
+	}
+}
+
+func TestKVSet_ExpiresIn_AndExpiresAt_MutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "val",
+		"--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555",
+		"--expires-in", "1d", "--expires-at", "2027-01-01T00:00:00Z",
+	)
+	if err == nil {
+		t.Fatal("expected error when both --expires-in and --expires-at are provided")
+	}
+}
+
+func TestKVUpdate_ExpiresIn_SendsISO8601(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	before := time.Now().UTC()
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "val", "--expires-in", "4h")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("invalid body JSON: %v", err)
+	}
+	raw, ok := body["expires_at"].(string)
+	if !ok || raw == "" {
+		t.Fatalf("expected expires_at in body, got: %s", bodyBytes)
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("expires_at is not RFC3339: %v", err)
+	}
+	expected := before.Add(4 * time.Hour)
+	diff := parsed.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Errorf("expected expires_at ~%v, got %v", expected, parsed)
+	}
+}
+
+func TestKVUpdate_ExpiresIn_AndExpiresAt_MutuallyExclusive(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "val",
+		"--expires-in", "1d", "--expires-at", "2027-01-01T00:00:00Z",
+	)
+	if err == nil {
+		t.Fatal("expected error when both --expires-in and --expires-at are provided")
 	}
 }
 

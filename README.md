@@ -216,12 +216,15 @@ kh kv get MY_API_TOKEN --reveal
 # Create a key
 kh kv set MY_KEY my-value --workspace <uuid>
 kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
+kh kv set MY_TEMP value --workspace <uuid> --expires-in 30d
 kh kv set MY_TEMP value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
 kh kv set CERT --value-file ./cert.pem --workspace <uuid>
 
 # Update a key
+kh kv update MY_KEY new-value
 kh kv update MY_KEY --value new-value
 kh kv update MY_KEY --value-file ./cert.pem
+kh kv update MY_KEY new-value --expires-in 7d
 
 # Delete a key
 kh kv delete MY_KEY --force
