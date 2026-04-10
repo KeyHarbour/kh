@@ -1,3 +1,10 @@
+## v1.9.0 (2026-04-09)
+
+### Features
+* New kh binary (af14744)
+
+---
+
 ## v1.8.6 (2026-04-09)
 
 ### Maintenance

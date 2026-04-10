@@ -76,27 +76,6 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	return ws.UUID, nil
 }
 
-// confirmReveal prompts the user before displaying a private value.
-// The prompt is only shown when cmd.InOrStdin() is a real TTY (*os.File with
-// ModeCharDevice). Pipes, redirects, and test readers skip the prompt and
-// return true so that scripts and non-interactive callers are never blocked.
-func confirmReveal(cmd *cobra.Command, key string) bool {
-	in := cmd.InOrStdin()
-	f, ok := in.(*os.File)
-	if !ok {
-		return true // not a real file (e.g. test reader) — skip prompt
-	}
-	fi, err := f.Stat()
-	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
-		return true // pipe, regular file, etc. — skip prompt
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "Reveal private value for %q? [y/N] ", key)
-	buf := make([]byte, 256)
-	n, _ := f.Read(buf)
-	answer := strings.TrimSpace(string(buf[:n]))
-	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")
-}
-
 func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
 	keyFile := o.encryptionKeyFile
 	if keyFile == "" {
@@ -231,10 +210,6 @@ Examples:
 				return err
 			}
 
-			if kv.Private && reveal && !confirmReveal(cmd, args[0]) {
-				return nil
-			}
-
 			val := kv.Value
 			switch {
 			case kvencrypt.IsEncrypted(val) && encKey != nil:
@@ -295,10 +270,6 @@ Examples:
 			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(kv)
-			}
-
-			if kv.Private && reveal && !confirmReveal(cmd, args[0]) {
-				return nil
 			}
 
 			val := kv.Value
@@ -434,23 +405,35 @@ If the key does not exist and --workspace is provided (or KH_WORKSPACE is set),
 the key is created automatically (upsert). If the workspace is specified by name
 rather than UUID, --project (or KH_PROJECT) is also required.
 
-The value can be supplied via --value or read from a file with --value-file.
+The value can be supplied as a second positional argument, via --value, or read from a file with --value-file.
 
 Examples:
+  kh kv update MY_KEY new-value
+  kh kv update MY_KEY new-value --private
   kh kv update MY_KEY --value new-value
   kh kv update MY_KEY --value-file ./cert.pem
   kh kv update MY_KEY --value new-value --private true
   kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z
   kh kv update MY_KEY --value new-value --workspace <uuid>`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			hasValueArg := len(args) == 2
 			hasValue := cmd.Flags().Changed("value")
 			hasValueFile := cmd.Flags().Changed("value-file")
+			if hasValueArg && hasValue {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either a positional value or --value, not both"))
+			}
 			if hasValue && hasValueFile {
 				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either --value or --value-file, not both"))
 			}
-			if !hasValue && !hasValueFile {
-				return errors.New("--value or --value-file is required")
+			if hasValueArg && hasValueFile {
+				return exitcodes.With(exitcodes.ValidationError, errors.New("provide either a positional value or --value-file, not both"))
+			}
+			if !hasValueArg && !hasValue && !hasValueFile {
+				return errors.New("a value is required: provide it as an argument, via --value, or via --value-file")
+			}
+			if hasValueArg {
+				value = args[1]
 			}
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -469,6 +452,7 @@ Examples:
 				value = string(data)
 			}
 			sendValue := value
+			_ = hasValueArg // consumed above
 			if encKey != nil {
 				sendValue, err = kvencrypt.Encrypt(*encKey, value)
 				if err != nil {
@@ -524,7 +508,8 @@ Examples:
 	}
 	cmd.Flags().StringVar(&value, "value", "", "New value")
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read new value from a file")
-	cmd.Flags().StringVar(&private, "private", "", "Set private flag: true|false")
+	cmd.Flags().StringVar(&private, "private", "", "Set private flag: true|false (bare --private means true)")
+	cmd.Flag("private").NoOptDefVal = "true"
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
 	return cmd
 }
