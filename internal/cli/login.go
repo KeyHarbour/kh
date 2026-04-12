@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"kh/internal/config"
+	"kh/internal/kherrors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -14,7 +15,7 @@ func newLoginCmd() *cobra.Command {
 	var device bool
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with Key-Harbour (OIDC device code or PAT)",
+		Short: "Authenticate with KeyHarbour (OIDC device code or PAT)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.Load()
 
@@ -30,11 +31,11 @@ func newLoginCmd() *cobra.Command {
 
 			if token == "" && device {
 				// Stub device flow
-				fmt.Fprintln(os.Stderr, "Starting device flow (stub). Visit: https://app.key-harbour.example/devices and enter code: ABCD-EFGH")
+				fmt.Fprintln(os.Stderr, "Starting device flow (stub). Visit: https://app.keyharbour.example/devices and enter code: ABCD-EFGH")
 				token = "device-token-stub"
 			}
 			if token == "" {
-				return fmt.Errorf("provide --token, set KH_TOKEN environment variable, or use --device")
+				return kherrors.ErrMissingToken.New("provide --token, set KH_TOKEN environment variable, or use --device")
 			}
 			cfg.Token = token
 			if endpoint != "" {

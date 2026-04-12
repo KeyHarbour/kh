@@ -2,14 +2,13 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"kh/internal/config"
-	"kh/internal/exitcodes"
+	"kh/internal/kherrors"
 	"kh/internal/khclient"
 	"kh/internal/output"
 
@@ -24,14 +23,14 @@ type statefileTarget struct {
 func (t statefileTarget) resolve(ctx context.Context, resolver referenceResolver, cfg config.Config) (string, string, error) {
 	projectRef := projectRefOrEnv(t.project, cfg)
 	if projectRef == "" {
-		return "", "", exitcodes.With(exitcodes.ValidationError, errors.New("--project is required (or set KH_PROJECT)"))
+		return "", "", kherrors.ErrMissingFlag.New("--project is required (or set KH_PROJECT)")
 	}
 	workspaceRef := t.workspace
 	if workspaceRef == "" {
 		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 	}
 	if workspaceRef == "" {
-		return "", "", exitcodes.With(exitcodes.ValidationError, errors.New("--workspace is required (or set KH_WORKSPACE)"))
+		return "", "", kherrors.ErrMissingFlag.New("--workspace is required (or set KH_WORKSPACE)")
 	}
 	project, err := resolver.ResolveProject(ctx, projectRef)
 	if err != nil {
@@ -178,7 +177,7 @@ Examples:
   kh tf version get <uuid> --raw`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles get requires exactly one argument: <uuid>"))
+				return kherrors.ErrMissingFlag.New("statefiles get requires exactly one argument: <uuid>")
 			}
 			return nil
 		},
@@ -228,10 +227,10 @@ Examples:
   terraform state pull | kh tf version push --project <uuid> --workspace prod --stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" && !fromStdin {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("provide --file or --stdin for statefiles push"))
+				return kherrors.ErrMissingFlag.New("provide --file or --stdin for statefiles push")
 			}
 			if filePath != "" && fromStdin {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("--file and --stdin are mutually exclusive"))
+				return kherrors.ErrConflictingFlags.New("--file and --stdin are mutually exclusive")
 			}
 			var data []byte
 			var err error
@@ -244,7 +243,7 @@ Examples:
 				return err
 			}
 			if len(data) == 0 {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("statefile content is empty"))
+				return kherrors.ErrInvalidValue.New("statefile content is empty")
 			}
 
 			cfg, _ := config.LoadWithEnv()
@@ -290,7 +289,7 @@ Examples:
   kh tf version rm <uuid>`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("statefiles rm requires exactly one argument: <uuid>"))
+				return kherrors.ErrMissingFlag.New("statefiles rm requires exactly one argument: <uuid>")
 			}
 			return nil
 		},
@@ -323,7 +322,7 @@ Examples:
   kh tf version rm-all --project <uuid> --workspace <uuid> --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("refusing to delete all statefiles without --force"))
+				return kherrors.ErrMissingFlag.New("refusing to delete all statefiles without --force")
 			}
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)

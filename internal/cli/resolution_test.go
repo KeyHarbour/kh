@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"kh/internal/config"
+	"kh/internal/kherrors"
 	"kh/internal/khclient"
 )
 
@@ -33,8 +35,61 @@ func TestResolveProjectRefRequiresUUID(t *testing.T) {
 	})
 
 	client := khclient.New(config.Config{Endpoint: srv.URL})
-	if _, err := resolveProjectRef(context.Background(), client, "demo"); err == nil {
-		t.Fatalf("expected error when project uuid not found")
+	_, err := resolveProjectRef(context.Background(), client, "demo")
+	if err == nil {
+		t.Fatal("expected error when project not found")
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError, got %T: %v", err, err)
+	}
+	if khErr.Code != "KH-NF-001" {
+		t.Errorf("Code = %q, want KH-NF-001", khErr.Code)
+	}
+}
+
+func TestResolveProjectRefEmptyRef(t *testing.T) {
+	client := khclient.New(config.Config{})
+	_, err := resolveProjectRef(context.Background(), client, "")
+	if err == nil {
+		t.Fatal("expected error for empty ref")
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError, got %T", err)
+	}
+	if khErr.Code != "KH-VAL-001" {
+		t.Errorf("Code = %q, want KH-VAL-001", khErr.Code)
+	}
+}
+
+func TestResolveWorkspaceRefEmptyRef(t *testing.T) {
+	client := khclient.New(config.Config{})
+	_, err := resolveWorkspaceRef(context.Background(), client, "p-1", "")
+	if err == nil {
+		t.Fatal("expected error for empty workspace ref")
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError, got %T", err)
+	}
+	if khErr.Code != "KH-VAL-001" {
+		t.Errorf("Code = %q, want KH-VAL-001", khErr.Code)
+	}
+}
+
+func TestResolveWorkspaceRefNonUUID(t *testing.T) {
+	client := khclient.New(config.Config{})
+	_, err := resolveWorkspaceRef(context.Background(), client, "p-1", "my-workspace-name")
+	if err == nil {
+		t.Fatal("expected error for non-UUID workspace ref")
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError, got %T", err)
+	}
+	if khErr.Code != "KH-VAL-002" {
+		t.Errorf("Code = %q, want KH-VAL-002", khErr.Code)
 	}
 }
 

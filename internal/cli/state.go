@@ -21,7 +21,18 @@ type StateMeta struct {
 }
 
 func newStateCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "state", Short: "Inspect and manage states"}
+	cmd := &cobra.Command{
+		Use:   "state",
+		Short: "Inspect and manage Terraform states",
+		Long: `Inspect and manage Terraform states stored in KeyHarbour.
+
+Subcommands:
+  ls      List all states (filterable by project, module, workspace)
+  show    Print a state's full Terraform v4 JSON
+  lock    Acquire an advisory lock on a state
+  unlock  Release an advisory lock
+  verify  Validate a state's integrity (schema, lineage, serial, checksum)`,
+	}
 	cmd.AddCommand(newStateLsCmd())
 	cmd.AddCommand(newStateShowCmd())
 	cmd.AddCommand(newLockCmd())
@@ -34,7 +45,7 @@ func newStateLsCmd() *cobra.Command {
 	var project, module, workspace, format string
 	cmd := &cobra.Command{
 		Use:   "ls",
-		Short: "List states known by Key-Harbour",
+		Short: "List all states",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)

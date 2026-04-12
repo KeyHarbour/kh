@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"kh/internal/kherrors"
 	"kh/internal/kvencrypt"
 )
 
@@ -1062,4 +1064,52 @@ func TestKVEnv_NoPrefixIncludesAll(t *testing.T) {
 	if !strings.Contains(out, "export OTHER='v2'") {
 		t.Errorf("expected OTHER in output, got: %s", out)
 	}
+}
+
+// ── Error taxonomy tests ──────────────────────────────────────────────────
+
+func assertKVKHError(t *testing.T, err error, wantCode string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error with code %q, got nil", wantCode)
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError (code %q), got %T: %v", wantCode, err, err)
+	}
+	if khErr.Code != wantCode {
+		t.Errorf("Code = %q, want %q", khErr.Code, wantCode)
+	}
+}
+
+func TestKVSet_ConflictingValueSources(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "val",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--value-file", "/dev/null")
+	assertKVKHError(t, err, "KH-VAL-004")
+}
+
+func TestKVSet_MissingValue(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	_, err := runKVCmd(t, srv, "set", "MY_KEY",
+		"--workspace", "11111111-2222-3333-4444-555555555555")
+	assertKVKHError(t, err, "KH-VAL-001")
+}
+
+func TestKVSet_ConflictingExpiry(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "val",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--expires-at", "2030-01-01T00:00:00Z",
+		"--expires-in", "30d")
+	assertKVKHError(t, err, "KH-VAL-004")
+}
+
+func TestKVUpdate_ConflictingValueFlags(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	_, err := runKVCmd(t, srv, "update", "MY_KEY",
+		"--value", "new",
+		"--value-file", "/dev/null")
+	assertKVKHError(t, err, "KH-VAL-004")
 }

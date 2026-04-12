@@ -18,7 +18,7 @@ import (
 func newUsersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "users",
-		Short: "List license team members",
+		Short: "Manage license team members",
 	}
 	cmd.AddCommand(newUsersListCmd())
 	cmd.AddCommand(newUsersShowCmd())

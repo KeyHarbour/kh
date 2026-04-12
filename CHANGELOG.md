@@ -1,3 +1,14 @@
+## v1.10.0 (2026-04-12)
+
+### Features
+* add explain infrastructure for pre-flight command descriptions (d96af98)
+
+### Documentation
+* add IDP/license sync PRD, DX prompts, and release exclusions (a1e0898)
+* improve help text consistency across all commands (4fa621e)
+
+---
+
 ## v1.9.1 (2026-04-10)
 
 ### Bug Fixes

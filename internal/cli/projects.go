@@ -17,7 +17,11 @@ import (
 func newProjectsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
-		Short: "Inspect Key-Harbour projects",
+		Short: "Inspect KeyHarbour projects",
+		Long: `Inspect projects stored in KeyHarbour.
+
+Subcommands:
+  show   Show a project's details (use KH_PROJECT or pass the UUID directly)`,
 	}
 	cmd.AddCommand(newProjectsListCmd())
 	cmd.AddCommand(newProjectsShowCmd())
