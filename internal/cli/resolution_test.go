@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"kh/internal/config"
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
 	"kh/internal/kherrors"
 )

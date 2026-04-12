@@ -7,7 +7,6 @@ import (
 	"regexp"
 
 	"kh/internal/config"
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
 	"kh/internal/kherrors"
 )
