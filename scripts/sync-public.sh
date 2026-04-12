@@ -133,6 +133,16 @@ if [[ ${#stripped[@]} -gt 0 ]]; then
   for p in "${stripped[@]}"; do echo "  - $p"; done
 fi
 
+# ── Safety check: abort if the synced code does not compile cleanly ───────────
+# Squash merges can produce duplicate imports when public/main and private/main
+# have different gofmt-sorted import blocks. Catch this before committing.
+if ! go vet ./... 2>/dev/null; then
+  echo ""
+  echo "Error: 'go vet' failed on the synced branch. Fix the issues above and re-run."
+  git checkout main
+  exit 1
+fi
+
 # ── Commit ────────────────────────────────────────────────────────────────────
 
 VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
