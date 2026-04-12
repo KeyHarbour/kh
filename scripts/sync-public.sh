@@ -95,6 +95,31 @@ git merge --squash main || {
 
 git add -A
 
+# ── Re-apply any file that main has but the squash silently dropped ───────────
+# git merge --squash can auto-resolve delete/modify conflicts by keeping the
+# deletion without flagging the file as unmerged (status U).  Walk every file
+# that exists in main, skip private paths, and restore it if it is absent from
+# the working tree after the squash.
+while IFS= read -r tracked_file; do
+  # Skip if this file matches a private path prefix
+  is_private=false
+  for priv in "${PRIVATE_PATHS[@]}"; do
+    if [[ "$tracked_file" == "$priv" || "$tracked_file" == "$priv/"* ]]; then
+      is_private=true
+      break
+    fi
+  done
+  [[ "$is_private" == true ]] && continue
+
+  # If the file is missing from the working tree, restore it from main
+  if [[ ! -e "$tracked_file" ]]; then
+    git checkout main -- "$tracked_file" 2>/dev/null && \
+      echo "  restored (silently dropped by squash): $tracked_file"
+  fi
+done < <(git ls-tree -r --name-only main)
+
+git add -A
+
 stripped=()
 for path in "${PRIVATE_PATHS[@]}"; do
   if git ls-files --cached --error-unmatch "$path" &>/dev/null 2>&1; then

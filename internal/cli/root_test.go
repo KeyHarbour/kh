@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 )
 
 // ── classifyError ─────────────────────────────────────────────────────────

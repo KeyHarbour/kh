@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 )
 
 func TestSyncCmd_Local_Success(t *testing.T) {
