@@ -1,3 +1,11 @@
+## v1.10.1 (2026-04-12)
+
+### Maintenance
+* enforce repo-wide gofmt and upgrade Node24-compatible actions (e1dc06f)
+* apply gofmt on errors map alignment (e2d6b53)
+
+---
+
 ## v1.10.0 (2026-04-12)
 
 ### Features

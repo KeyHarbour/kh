@@ -9,6 +9,7 @@ import (
 	"kh/internal/config"
 	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 )
 
 type referenceResolver interface {

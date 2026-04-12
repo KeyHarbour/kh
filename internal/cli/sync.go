@@ -11,8 +11,8 @@ import (
 
 	"kh/internal/backend"
 	"kh/internal/config"
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/logging"
 	"kh/internal/output"
 	"kh/internal/state"

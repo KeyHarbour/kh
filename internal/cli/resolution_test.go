@@ -12,6 +12,7 @@ import (
 	"kh/internal/config"
 	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 )
 
 func newIPv4Server(t *testing.T, handler http.HandlerFunc) *httptest.Server {

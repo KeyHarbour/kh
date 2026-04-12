@@ -41,13 +41,13 @@ const (
 // internal/exitcodes/exitcodes.go.
 var exitCodeForCategory = map[Category]int{
 	CategoryValidation: exitcodes.ValidationError, // 3
-	CategoryAuth:       exitcodes.AuthError,        // 4
-	CategoryNetwork:    exitcodes.BackendIOError,   // 5
-	CategoryPermission: exitcodes.AuthError,        // 4 – HTTP 403 is auth-adjacent
-	CategoryConflict:   exitcodes.LockError,        // 6
-	CategoryNotFound:   exitcodes.UnknownError,     // 1 – no dedicated code yet
-	CategoryPartial:    exitcodes.Partial,          // 2
-	CategoryInternal:   exitcodes.UnknownError,     // 1
+	CategoryAuth:       exitcodes.AuthError,       // 4
+	CategoryNetwork:    exitcodes.BackendIOError,  // 5
+	CategoryPermission: exitcodes.AuthError,       // 4 – HTTP 403 is auth-adjacent
+	CategoryConflict:   exitcodes.LockError,       // 6
+	CategoryNotFound:   exitcodes.UnknownError,    // 1 – no dedicated code yet
+	CategoryPartial:    exitcodes.Partial,         // 2
+	CategoryInternal:   exitcodes.UnknownError,    // 1
 }
 
 // KHError is a structured CLI error with a stable machine code.

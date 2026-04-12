@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"kh/internal/config"
-	"kh/internal/kherrors"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
