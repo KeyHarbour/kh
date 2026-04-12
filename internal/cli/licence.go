@@ -20,6 +20,19 @@ func newLicenseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "license",
 		Short: "Manage software license records",
+		Long: `Create, inspect, update, and delete software license records in KeyHarbour.
+
+Subcommands:
+  ls           List all license records
+  show         Show a license record's details
+  create       Create a new license record
+  update       Update a license record
+  delete       Delete a license record
+  import       Import license records from a CSV file
+  instance     Manage instances of a licensed application
+  licensee     Manage licensees assigned to an instance
+  team-member  Manage team members associated with licenses
+  users        Manage license team members`,
 	}
 	cmd.AddCommand(newLicenseListCmd())
 	cmd.AddCommand(newLicenseShowCmd())
@@ -686,7 +699,7 @@ func newLicenseLicenseeDeleteCmd() *cobra.Command {
 func newLicenseTeamMemberCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "team-member",
-		Short: "Manage licence team members",
+		Short: "Manage license team members",
 	}
 	cmd.AddCommand(newLicenseTeamMemberListCmd())
 	cmd.AddCommand(newLicenseTeamMemberShowCmd())

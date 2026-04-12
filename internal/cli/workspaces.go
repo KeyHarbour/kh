@@ -21,7 +21,17 @@ func newWorkspacesCmd() *cobra.Command {
 	opts := &workspaceCmdOpts{}
 	cmd := &cobra.Command{
 		Use:   "workspace",
-		Short: "Inspect project workspaces",
+		Short: "Manage project workspaces",
+		Long: `Create, inspect, update, and delete workspaces within a KeyHarbour project.
+
+Subcommands:
+  ls      List all workspaces in a project
+  show    Show workspace details
+  create  Create a new workspace
+  update  Rename or update a workspace
+  delete  Delete a workspace
+
+All subcommands require --project (or KH_PROJECT).`,
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.AddCommand(newWorkspacesListCmd(opts))

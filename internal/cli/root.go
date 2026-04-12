@@ -2,11 +2,14 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"kh/internal/exitcodes"
+	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/logging"
 	"kh/pkg/version"
 
@@ -34,13 +37,16 @@ func newRootCmd() *cobra.Command {
   kh license   Manage software licenses
 
 Environment variables:
-  KH_ENDPOINT     API base URL (e.g. https://app.keyharbour.ca/api/v2)
-  KH_TOKEN        Bearer token for authentication
-  KH_PROJECT      Default project UUID
-  KH_WORKSPACE    Default workspace name or UUID
-  KH_DEBUG        Set to 1 for verbose debug logging
-  KH_INSECURE     Set to 1 to skip TLS certificate verification (dev/test only)
-  KH_ENCRYPTION_KEY  Hex-encoded 256-bit AES key for client-side KV encryption`,
+  KH_ENDPOINT          API base URL (e.g. https://app.keyharbour.ca/api/v2)
+  KH_TOKEN             Bearer token for authentication
+  KH_ORG               Default organization slug
+  KH_PROJECT           Default project UUID
+  KH_WORKSPACE         Default workspace name or UUID
+  KH_CONCURRENCY       Default parallelism for bulk operations (default: 4)
+  KH_OUTPUT            Default output format: table|json
+  KH_DEBUG             Set to 1 for verbose debug logging
+  KH_INSECURE          Set to 1 to skip TLS certificate verification (dev/test only)
+  KH_ENCRYPTION_KEY_FILE  Path to a file containing the hex-encoded 256-bit AES key for client-side KV encryption`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -116,11 +122,52 @@ Environment variables:
 func Execute() int {
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if ec, ok := err.(exitcodes.ExitCoder); ok {
-			return ec.ExitCode()
+		khErr := classifyError(err)
+		if outputFormat == "json" {
+			enc := json.NewEncoder(os.Stderr)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(map[string]any{"error": khErr})
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+			if khErr.Hint != "" {
+				fmt.Fprintf(os.Stderr, "hint: %s\n", khErr.Hint)
+			}
 		}
-		return exitcodes.UnknownError
+		return khErr.ExitCode()
 	}
 	return exitcodes.OK
 }
+
+// classifyError converts any error to a *kherrors.KHError for structured
+// output and exit-code resolution. It handles:
+//   - *kherrors.KHError already in the chain (returned as-is)
+//   - khclient.APIError mapped by HTTP status code
+//   - All other errors wrapped as KH-INT-001
+func classifyError(err error) *kherrors.KHError {
+	var khErr *kherrors.KHError
+	if errors.As(err, &khErr) {
+		return khErr
+	}
+	var apiErr khclient.APIError
+	if errors.As(err, &apiErr) {
+		msg := apiErr.Error()
+		switch {
+		case apiErr.StatusCode == 401:
+			return kherrors.ErrTokenInvalid.Wrap(msg, err)
+		case apiErr.StatusCode == 403:
+			return kherrors.ErrForbidden.Wrap(msg, err)
+		case apiErr.StatusCode == 404:
+			return kherrors.ErrNotFound.Wrap(msg, err)
+		case apiErr.StatusCode == 409 || apiErr.StatusCode == 423:
+			return kherrors.ErrStateLocked.Wrap(msg, err)
+		case apiErr.StatusCode >= 500:
+			return kherrors.ErrAPIError.Wrap(msg, err)
+		}
+	}
+	return kherrors.ErrInternal.Wrap(kherrors.Redact(err.Error()), err)
+}
+
+// Ensure the old exitcodes.ExitCoder interface is still satisfied at compile
+// time so any remaining exitcodes.With(...) call sites keep working until
+// they are migrated.
+var _ exitcodes.ExitCoder = (*kherrors.KHError)(nil)

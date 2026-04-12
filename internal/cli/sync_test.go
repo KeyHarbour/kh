@@ -3,14 +3,17 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"kh/internal/khclient"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"kh/internal/kherrors"
+	"kh/internal/khclient"
 )
 
 func TestSyncCmd_Local_Success(t *testing.T) {
@@ -221,4 +224,68 @@ func TestSyncCmd_TFC_Success(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync command (tfc) failed: %v", err)
 	}
+}
+
+// ── Error taxonomy tests ──────────────────────────────────────────────────
+
+func runSyncCmd(t *testing.T, args ...string) error {
+	t.Helper()
+	cmd := newSyncCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs(args)
+	return cmd.Execute()
+}
+
+func assertKHError(t *testing.T, err error, wantCode string) *kherrors.KHError {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error with code %q, got nil", wantCode)
+	}
+	var khErr *kherrors.KHError
+	if !errors.As(err, &khErr) {
+		t.Fatalf("expected *kherrors.KHError (code %q), got %T: %v", wantCode, err, err)
+	}
+	if khErr.Code != wantCode {
+		t.Errorf("Code = %q, want %q", khErr.Code, wantCode)
+	}
+	return khErr
+}
+
+func TestSyncCmd_MissingFrom_ReturnsKHError(t *testing.T) {
+	err := runSyncCmd(t, "--project=some-uuid")
+	assertKHError(t, err, "KH-VAL-001")
+}
+
+func TestSyncCmd_MissingToken_ReturnsKHError(t *testing.T) {
+	// Redirect HOME so config.LoadWithEnv finds no config file and no stored token.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("KH_TOKEN", "")
+	err := runSyncCmd(t, "--from=keyharbour", "--src-project=p", "--src-workspace=w", "--to=file", "--out=out.tfstate")
+	assertKHError(t, err, "KH-AUTH-001")
+}
+
+func TestSyncCmd_UnsupportedFrom_ReturnsKHError(t *testing.T) {
+	err := runSyncCmd(t, "--from=ftp", "--project=some-uuid")
+	assertKHError(t, err, "KH-VAL-002")
+}
+
+func TestSyncCmd_UnsupportedTo_ReturnsKHError(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "terraform.tfstate")
+	os.WriteFile(stateFile, []byte(`{"version":4,"terraform_version":"1.0","serial":1,"lineage":"x","outputs":{}}`), 0o644)
+	err := runSyncCmd(t, "--from=local", "--path="+stateFile, "--to=ftp")
+	assertKHError(t, err, "KH-VAL-002")
+}
+
+func TestSyncCmd_MissingPath_ReturnsKHError(t *testing.T) {
+	err := runSyncCmd(t, "--from=local")
+	assertKHError(t, err, "KH-VAL-001")
+}
+
+func TestSyncCmd_InvalidWorkspacePattern_ReturnsKHError(t *testing.T) {
+	t.Setenv("KH_TOKEN", "dummy")
+	err := runSyncCmd(t, "--from=keyharbour", "--workspace-pattern=[invalid")
+	assertKHError(t, err, "KH-VAL-002")
 }

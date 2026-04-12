@@ -8,7 +8,20 @@ import (
 )
 
 func newConfigCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "config", Short: "Manage kh configuration"}
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage CLI configuration",
+		Long: `Read and write values in the local KeyHarbour CLI configuration file (~/.kh/config).
+
+Subcommands:
+  get <key>         Print the current value of a config key
+  set <key> <value> Persist a config value
+
+Valid keys: endpoint, token, org, project, concurrency
+
+Configuration values can also be overridden at runtime via environment variables
+(KH_ENDPOINT, KH_TOKEN, KH_ORG, KH_PROJECT, KH_CONCURRENCY).`,
+	}
 	cmd.AddCommand(newConfigGetCmd())
 	cmd.AddCommand(newConfigSetCmd())
 	return cmd

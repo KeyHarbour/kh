@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +11,7 @@ import (
 
 	"kh/internal/backend"
 	"kh/internal/config"
-	"kh/internal/exitcodes"
+	"kh/internal/kherrors"
 	"kh/internal/khclient"
 	"kh/internal/logging"
 	"kh/internal/output"
@@ -98,7 +97,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadWithEnv()
 			if err != nil {
-				return exitcodes.With(exitcodes.UnknownError, err)
+				return kherrors.ErrConfigLoad.Wrapf(err, "failed to load configuration: %s", err)
 			}
 
 			if concurrency == 0 {
@@ -112,7 +111,7 @@ Examples:
 
 			// Validate source
 			if from == "" {
-				return exitcodes.With(exitcodes.ValidationError, errors.New("--from is required (local|http|tfc|keyharbour)"))
+				return kherrors.ErrMissingFlag.New("--from is required (local|http|tfc|keyharbour)")
 			}
 
 			// Default destination to keyharbour for backward compatibility
@@ -125,7 +124,7 @@ Examples:
 			if workspacePattern != "" {
 				wsRE, err = regexp.Compile(workspacePattern)
 				if err != nil {
-					return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("invalid --workspace-pattern: %w", err))
+					return kherrors.ErrInvalidValue.Wrapf(err, "invalid --workspace-pattern: %s", err)
 				}
 			}
 
@@ -137,12 +136,12 @@ Examples:
 			switch from {
 			case "local":
 				if localPath == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--path is required for --from=local"))
+					return kherrors.ErrMissingFlag.New("--path is required for --from=local")
 				}
 				r = backend.NewLocalReader(localPath, wsRE)
 			case "http":
 				if httpURL == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--url is required for --from=http"))
+					return kherrors.ErrMissingFlag.New("--url is required for --from=http")
 				}
 				r = backend.NewHTTPReader(httpURL)
 			case "tfc":
@@ -162,16 +161,16 @@ Examples:
 					}
 				}
 				if tfcOrg == "" || tfcWorkspace == "" || tfcToken == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--tfc-org, --tfc-workspace and a token (TF_API_TOKEN/TFC_TOKEN) are required for --from=tfc"))
+					return kherrors.ErrMissingFlag.New("--tfc-org, --tfc-workspace and a token (TF_API_TOKEN/TFC_TOKEN) are required for --from=tfc")
 				}
 				r = backend.NewTFCReader(tfcHost, tfcOrg, tfcWorkspace, tfcToken)
 			case "keyharbour":
 				if cfg.Token == "" {
-					return exitcodes.With(exitcodes.AuthError, errors.New("not logged in: KH_TOKEN is missing"))
+					return kherrors.ErrMissingToken.New("not logged in: KH_TOKEN is missing")
 				}
 				r = backend.NewKeyHarbourReader(client, srcProject, srcWorkspace, stateID, env)
 			default:
-				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --from: %s (supported: local,http,tfc,keyharbour)", from))
+				return kherrors.ErrInvalidValue.Newf("unsupported --from: %s (supported: local,http,tfc,keyharbour)", from)
 			}
 
 			// Setup Writer
@@ -180,26 +179,26 @@ Examples:
 			switch to {
 			case "keyharbour":
 				if cfg.Token == "" {
-					return exitcodes.With(exitcodes.AuthError, errors.New("not logged in: KH_TOKEN is missing"))
+					return kherrors.ErrMissingToken.New("not logged in: KH_TOKEN is missing")
 				}
 				projectRef := projectRefOrEnv(project, cfg)
 				if projectRef == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--project is required for --to=keyharbour"))
+					return kherrors.ErrMissingFlag.New("--project is required for --to=keyharbour")
 				}
 				proj, err := resolveProjectRef(ctx, client, projectRef)
 				if err != nil {
-					return exitcodes.With(exitcodes.ValidationError, err)
+					return err
 				}
 				destProj = &proj
 				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspace, createWorkspace)
 			case "file":
 				if outPath == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--out is required for --to=file"))
+					return kherrors.ErrMissingFlag.New("--out is required for --to=file")
 				}
 				w = &backend.LocalWriter{}
 			case "http":
 				if destHTTPURL == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--dest-url is required for --to=http"))
+					return kherrors.ErrMissingFlag.New("--dest-url is required for --to=http")
 				}
 				headers := map[string]string{}
 				if idempotencyKey != "" {
@@ -228,11 +227,11 @@ Examples:
 					destTFCHost = "https://app.terraform.io"
 				}
 				if destTFCOrg == "" || destTFCWorkspace == "" || destTFCToken == "" {
-					return exitcodes.With(exitcodes.ValidationError, errors.New("--dest-tfc-org, --dest-tfc-workspace and a token are required for --to=tfc"))
+					return kherrors.ErrMissingFlag.New("--dest-tfc-org, --dest-tfc-workspace and a token are required for --to=tfc")
 				}
 				w = backend.NewTFCWriter(destTFCHost, destTFCOrg, destTFCWorkspace, destTFCToken)
 			default:
-				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("unsupported --to: %s (supported: keyharbour,file,http,tfc)", to))
+				return kherrors.ErrInvalidValue.Newf("unsupported --to: %s (supported: keyharbour,file,http,tfc)", to)
 			}
 
 			// List objects from source
@@ -240,17 +239,17 @@ Examples:
 			defer cancel()
 			objs, err := r.List(fetchCtx)
 			if err != nil {
-				return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("failed to list source objects: %w", err))
+				return kherrors.ErrBackendIO.Wrapf(err, "failed to list source objects: %s", err)
 			}
 			if len(objs) == 0 {
-				return exitcodes.With(exitcodes.BackendIOError, errors.New("no state files found in source"))
+				return kherrors.ErrBackendIO.New("no state files found in source")
 			}
 
 			logging.Debugf("Found %d objects in source", len(objs))
 
 			// Validate workspace constraints
 			if to == "keyharbour" && workspace != "" && len(objs) > 1 {
-				return exitcodes.With(exitcodes.ValidationError, fmt.Errorf("source has %d items but --workspace specified a single target. Remove --workspace to infer names, or ensure source has only 1 item.", len(objs)))
+				return kherrors.ErrInvalidValue.Newf("source has %d items but --workspace specified a single target. Remove --workspace to infer names, or ensure source has only 1 item.", len(objs))
 			}
 
 			if dryRun {
@@ -391,7 +390,7 @@ Examples:
 					if err := printer.JSON(summary); err != nil {
 						return err
 					}
-					return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("%d/%d operations failed", len(failures), len(objs)))
+					return kherrors.ErrPartialFailure.Newf("%d/%d operations failed", len(failures), len(objs))
 				}
 				return printer.JSON(summary)
 			}
@@ -403,7 +402,7 @@ Examples:
 				for _, f := range failures {
 					fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", f["key"], f["error"])
 				}
-				return exitcodes.With(exitcodes.BackendIOError, fmt.Errorf("%d/%d operations failed", len(failures), len(objs)))
+				return kherrors.ErrPartialFailure.Newf("%d/%d operations failed", len(failures), len(objs))
 			}
 
 			if genBackend && to == "keyharbour" && destProj != nil {
