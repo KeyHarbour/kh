@@ -1,3 +1,10 @@
+## v1.10.2 (2026-04-14)
+
+### Maintenance
+* retry release to regenerate missing public tag
+
+---
+
 ## v1.10.1 (2026-04-12)
 
 ### Maintenance
