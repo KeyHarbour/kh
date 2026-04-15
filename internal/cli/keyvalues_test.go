@@ -565,8 +565,8 @@ func TestKVSet_ValueFile(t *testing.T) {
 	if fields["key"] != "FILE_KEY" {
 		t.Errorf("expected key FILE_KEY in form, got: %#v", fields)
 	}
-	if fields["value-file"] != "value-from-file" {
-		t.Errorf("expected file content as value-file in form, got: %#v", fields)
+	if fields["value_file"] != "value-from-file" {
+		t.Errorf("expected file content as value_file in form, got: %#v", fields)
 	}
 	if _, ok := fields["value"]; ok {
 		t.Errorf("did not expect value form field for --value-file input, got: %#v", fields)
@@ -648,8 +648,8 @@ func TestKVUpdate_ValueFile(t *testing.T) {
 		t.Fatalf("command failed: %v", err)
 	}
 	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
-	if fields["value-file"] != "updated-from-file" {
-		t.Errorf("expected file content as value-file in form, got: %#v", fields)
+	if fields["value_file"] != "updated-from-file" {
+		t.Errorf("expected file content as value_file in form, got: %#v", fields)
 	}
 	if _, ok := fields["value"]; ok {
 		t.Errorf("did not expect value form field for --value-file input, got: %#v", fields)

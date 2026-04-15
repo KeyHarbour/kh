@@ -41,7 +41,7 @@ echo "Scanning   : ${range}"
 
 # bash 3.2-compatible replacement for mapfile
 raw_commits=()
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
   [ -n "$line" ] && raw_commits+=("$line")
 done < <(git log "$range" --pretty=format:"%s (%h)" 2>/dev/null || true)
 
