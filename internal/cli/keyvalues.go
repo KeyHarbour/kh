@@ -104,7 +104,7 @@ func parseExpiresIn(s string) (string, error) {
 	return time.Now().UTC().Add(d).Format(time.RFC3339), nil
 }
 
-func (o *kvCmdOpts) resolveEncryptionKey(cfg config.Config) (*[32]byte, error) {
+func (o *kvCmdOpts) resolveEncryptionKey(_ config.Config) (*[32]byte, error) {
 	keyFile := o.encryptionKeyFile
 	if keyFile == "" {
 		keyFile = os.Getenv("KH_ENCRYPTION_KEY_FILE")
@@ -140,14 +140,13 @@ func newKVListCmd(opts *kvCmdOpts) *cobra.Command {
 		Short: "List key/value pairs in a workspace",
 		Long: `List all key/value pairs stored in a workspace.
 
-Requires --workspace (or KH_WORKSPACE). If the workspace is specified by name
-rather than UUID, --project (or KH_PROJECT) is also required for name resolution.
+Requires --workspace (or KH_WORKSPACE) as a UUID.
 Private values are masked as *** in table output; use -o json to see the raw
 response (values remain masked server-side unless the token has reveal access).
 
 Examples:
   kh kv ls --workspace <uuid>
-  kh kv ls --workspace prod --project <uuid> -o json`,
+  kh kv ls --workspace <uuid> -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			workspaceUUID, err := opts.resolve(cfg)
@@ -207,6 +206,7 @@ Examples:
 
 func newKVGetCmd(opts *kvCmdOpts) *cobra.Command {
 	var reveal bool
+	var outputFile string
 	cmd := &cobra.Command{
 		Use:   "get <key>",
 		Short: "Print the raw value of a key",
@@ -217,9 +217,12 @@ within your token scope.
 
 Private values are masked unless --reveal is passed.
 
+Use --output-file to write the raw response bytes to a file.
+
 Examples:
   kh kv get MY_KEY
   kh kv get MY_SECRET --reveal
+	kh kv get CERT_PEM --output-file cert.pem
   export DB_URL=$(kh kv get DATABASE_URL)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -238,24 +241,39 @@ Examples:
 				return err
 			}
 
-			val := kv.Value
+			raw := kv.RawValue
+			if len(raw) == 0 {
+				raw = []byte(kv.Value)
+			}
+			val := string(raw)
 			switch {
 			case kvencrypt.IsEncrypted(val) && encKey != nil:
 				plain, err := kvencrypt.Decrypt(*encKey, val)
 				if err != nil {
 					return kherrors.ErrInvalidValue.Wrap(err.Error(), err)
 				}
-				val = plain
+				raw = []byte(plain)
 			case kvencrypt.IsEncrypted(val):
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key-file or KH_ENCRYPTION_KEY_FILE to decrypt\n")
 			case kv.Private && !reveal:
-				val = "*** (use --reveal to show)"
+				raw = []byte("*** (use --reveal to show)")
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), val)
+
+			if outputFile != "" {
+				if err := os.WriteFile(outputFile, raw, 0o600); err != nil {
+					return kherrors.ErrBackendIO.Wrapf(err, "cannot write output file: %s", err)
+				}
+				return nil
+			}
+
+			if _, err := cmd.OutOrStdout().Write(raw); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&reveal, "reveal", false, "Show value even if the key is private")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "Write the raw value bytes to a file")
 	return cmd
 }
 
@@ -338,8 +356,7 @@ func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 		Short: "Create a new key/value in a workspace",
 		Long: `Create a new key/value pair in a workspace.
 
-Requires --workspace (or KH_WORKSPACE). If the workspace is specified by name
-rather than UUID, --project (or KH_PROJECT) is also required for name resolution.
+Requires --workspace (or KH_WORKSPACE) as a UUID.
 
 The value can be provided as a positional argument or read from a file with
 --value-file. Exactly one of the two must be supplied.
@@ -402,9 +419,10 @@ Examples:
 			}
 
 			req := khclient.CreateKeyValueRequest{
-				Key:     args[0],
-				Value:   value,
-				Private: private,
+				Key:       args[0],
+				Value:     value,
+				ValueFile: hasValueFile,
+				Private:   private,
 			}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
@@ -444,8 +462,7 @@ func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 		Long: `Update the value, private flag, or expiry of an existing key/value.
 
 If the key does not exist and --workspace is provided (or KH_WORKSPACE is set),
-the key is created automatically (upsert). If the workspace is specified by name
-rather than UUID, --project (or KH_PROJECT) is also required.
+the key is created automatically (upsert). --workspace must be a UUID.
 
 The value can be supplied as a second positional argument, via --value, or read from a file with --value-file.
 
@@ -513,7 +530,7 @@ Examples:
 				}
 			}
 
-			req := khclient.UpdateKeyValueRequest{Value: sendValue}
+			req := khclient.UpdateKeyValueRequest{Value: sendValue, ValueFile: hasValueFile}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
 			}
@@ -542,9 +559,10 @@ Examples:
 					}
 					isPrivate := private == "true"
 					createReq := khclient.CreateKeyValueRequest{
-						Key:     args[0],
-						Value:   sendValue,
-						Private: isPrivate,
+						Key:       args[0],
+						Value:     sendValue,
+						ValueFile: hasValueFile,
+						Private:   isPrivate,
 					}
 					if expiresAt != "" {
 						createReq.ExpiresAt = &expiresAt
@@ -570,7 +588,7 @@ Examples:
 
 // ── delete ────────────────────────────────────────────────────────────────────
 
-func newKVDeleteCmd(opts *kvCmdOpts) *cobra.Command {
+func newKVDeleteCmd(_ *kvCmdOpts) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "delete <key>",

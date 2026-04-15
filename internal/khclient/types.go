@@ -47,6 +47,7 @@ type Workspace struct {
 type KeyValue struct {
 	Key         string  `json:"key"`
 	Value       string  `json:"value"`
+	RawValue    []byte  `json:"-"`
 	ExpiresAt   *string `json:"expires_at"`
 	Private     bool    `json:"private"`
 	Environment string  `json:"environment,omitempty"`
@@ -55,6 +56,7 @@ type KeyValue struct {
 type CreateKeyValueRequest struct {
 	Key       string  `json:"key"`
 	Value     string  `json:"value"`
+	ValueFile bool    `json:"-"`
 	ExpiresAt *string `json:"expires_at,omitempty"`
 	Private   bool    `json:"private,omitempty"`
 }
@@ -132,6 +134,8 @@ type UpdateInstanceRequest struct {
 
 type Licensee struct {
 	UUID   string `json:"uuid"`
+	Name   string `json:"name,omitempty"`
+	Email  string `json:"email,omitempty"`
 	Status string `json:"status,omitempty"`
 }
 
@@ -160,6 +164,7 @@ type UpdateTeamMemberRequest struct {
 
 type UpdateKeyValueRequest struct {
 	Value     string  `json:"value"`
+	ValueFile bool    `json:"-"`
 	ExpiresAt *string `json:"expires_at,omitempty"`
 	Private   *bool   `json:"private,omitempty"`
 }

@@ -1,0 +1,40 @@
+run:
+  timeout: 5m
+
+linters:
+  # Start from the default set (errcheck, govet, ineffassign, staticcheck, unused)
+  # and add targeted extras.
+  enable:
+    - misspell       # typos in comments and strings
+    - nilerr         # return nil instead of err
+    - unconvert      # unnecessary type conversions
+    - unparam        # function parameters that are always the same value
+    - whitespace     # unnecessary blank lines at the start/end of blocks
+
+linters-settings:
+  errcheck:
+    # fmt.Fprintf / fmt.Fprintln errors are non-actionable in CLI output paths.
+    exclude-functions:
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - (io.Writer).Write
+
+  staticcheck:
+    checks:
+      - "all"
+      - "-SA1019"   # deprecated — suppress until we control upgrade cadence
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Test files: relax errcheck and unparam.
+    - path: "_test\\.go$"
+      linters:
+        - errcheck
+        - unparam
+    # Integration test harness uses intentional global state.
+    - path: "integration-tests/"
+      linters:
+        - errcheck
+        - unparam

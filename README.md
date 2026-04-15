@@ -205,6 +205,14 @@ kh workspace delete <workspace-uuid> --project <uuid> --force
 Commands acting on the workspace collection (`ls`, `set`) require `--workspace` (workspace UUID).
 Commands acting on a specific key (`get`, `update`, `delete`) only need the key name.
 
+Request field mapping for `set` and `update`:
+
+| Input source | Sent multipart field |
+| --- | --- |
+| Positional value (`kh kv set KEY value`) | `value` |
+| `--value <value>` (update) | `value` |
+| `--value-file <path>` | `value-file` |
+
 ```zsh
 # List all key/value pairs
 kh kv ls --workspace <uuid>
@@ -212,8 +220,10 @@ kh kv ls --workspace <uuid>
 # Get a key (--reveal to show private values)
 kh kv get MY_KEY
 kh kv get MY_API_TOKEN --reveal
+kh kv get CERT --output-file ./cert.pem
 
 # Create a key
+# Positional/--value sends `value`; --value-file sends `value-file`
 kh kv set MY_KEY my-value --workspace <uuid>
 kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
 kh kv set MY_TEMP value --workspace <uuid> --expires-in 30d
@@ -221,6 +231,7 @@ kh kv set MY_TEMP value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
 kh kv set CERT --value-file ./cert.pem --workspace <uuid>
 
 # Update a key
+# Positional/--value sends `value`; --value-file sends `value-file`
 kh kv update MY_KEY new-value
 kh kv update MY_KEY --value new-value
 kh kv update MY_KEY --value-file ./cert.pem

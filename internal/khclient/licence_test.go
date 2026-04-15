@@ -82,12 +82,13 @@ func TestCreateApplication(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		bodyBytes, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+		json.NewEncoder(w).Encode(Application{UUID: "app-uuid-1", Name: "Terraform Cloud", ShortName: "tfc"})
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.CreateApplication(context.Background(), CreateApplicationRequest{
+	app, err := c.CreateApplication(context.Background(), CreateApplicationRequest{
 		Name:      "Terraform Cloud",
 		ShortName: "tfc",
 		Owner:     "ops",
@@ -96,15 +97,18 @@ func TestCreateApplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
+	if app.UUID != "app-uuid-1" {
+		t.Fatalf("expected uuid app-uuid-1, got %s", app.UUID)
+	}
 	var m map[string]any
 	if err := json.Unmarshal(bodyBytes, &m); err != nil {
 		t.Fatalf("invalid body JSON: %v", err)
 	}
-	app, _ := m["application"].(map[string]any)
-	if app == nil {
+	wrapper, _ := m["application"].(map[string]any)
+	if wrapper == nil {
 		t.Fatalf("expected application wrapper in body, got: %s", bodyBytes)
 	}
-	if app["name"] != "Terraform Cloud" {
+	if wrapper["name"] != "Terraform Cloud" {
 		t.Fatalf("expected name in body, got: %s", bodyBytes)
 	}
 }

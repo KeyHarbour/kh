@@ -190,7 +190,7 @@ Examples:
 					return err
 				}
 				destProj = &proj
-				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspace, createWorkspace)
+				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspaceRefOrEnv(workspace, cfg), createWorkspace)
 			case "file":
 				if outPath == "" {
 					return kherrors.ErrMissingFlag.New("--out is required for --to=file")
@@ -448,8 +448,8 @@ Examples:
 
 	// Destination flags
 	cmd.Flags().StringVar(&to, "to", "", "Destination backend: keyharbour|file|http|tfc (default: keyharbour)")
-	cmd.Flags().StringVar(&project, "project", "", "Target KeyHarbour project (for --to=keyharbour)")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Target KeyHarbour workspace (for --to=keyharbour)")
+	cmd.Flags().StringVar(&project, "project", "", "Target KeyHarbour project (for --to=keyharbour) (or KH_PROJECT)")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "Target KeyHarbour workspace (for --to=keyharbour) (or KH_WORKSPACE)")
 	cmd.Flags().StringVar(&env, "env", "", "Filter statefiles by environment name (for --from=keyharbour)")
 	cmd.Flags().BoolVar(&createWorkspace, "create-workspace", false, "Create workspace if it does not exist (for --to=keyharbour)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path for --to=file (supports {workspace} and {key} templates)")
