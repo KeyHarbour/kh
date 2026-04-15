@@ -116,7 +116,7 @@ func buildKeyValueMultipartBody(key, value string, expiresAt *string, private *b
 	}
 
 	if valueFromFile {
-		vw, err := w.CreateFormFile("value-file", "value")
+		vw, err := w.CreateFormFile("value_file", "value")
 		if err != nil {
 			return requestBody{}, err
 		}

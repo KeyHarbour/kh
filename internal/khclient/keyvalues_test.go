@@ -157,8 +157,8 @@ func TestCreateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if gotFields["value-file"] != "new-value" {
-		t.Fatalf("expected value-file new-value in form, got: %#v", gotFields)
+	if gotFields["value_file"] != "new-value" {
+		t.Fatalf("expected value_file new-value in form, got: %#v", gotFields)
 	}
 	if _, ok := gotFields["value"]; ok {
 		t.Fatalf("did not expect value form field for file-based values, got: %#v", gotFields)
@@ -191,8 +191,8 @@ func TestUpdateKeyValue(t *testing.T) {
 	if gotFields["value"] != "updated" {
 		t.Fatalf("expected value=updated in form, got: %#v", gotFields)
 	}
-	if _, ok := gotFields["value-file"]; ok {
-		t.Fatalf("did not expect value-file form field for regular values, got: %#v", gotFields)
+	if _, ok := gotFields["value_file"]; ok {
+		t.Fatalf("did not expect value_file form field for regular values, got: %#v", gotFields)
 	}
 }
 
@@ -216,8 +216,8 @@ func TestUpdateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if gotFields["value-file"] != "updated" {
-		t.Fatalf("expected value-file=updated in form, got: %#v", gotFields)
+	if gotFields["value_file"] != "updated" {
+		t.Fatalf("expected value_file=updated in form, got: %#v", gotFields)
 	}
 	if _, ok := gotFields["value"]; ok {
 		t.Fatalf("did not expect value form field for file-based values, got: %#v", gotFields)

@@ -1,3 +1,11 @@
+## v1.11.1 (2026-04-14)
+
+### Bug Fixes
+* detect final commit in bump script (823c144)
+* rename multipart field from value-file to value_file (e96511b)
+
+---
+
 ## v1.11.0 (2026-04-14)
 
 ### Features
