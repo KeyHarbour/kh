@@ -49,7 +49,7 @@ func resolveProjectRef(ctx context.Context, client *khclient.Client, ref string)
 	return khclient.Project{}, err
 }
 
-func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, projectUUID, ref string) (khclient.Workspace, error) {
+func resolveWorkspaceRef(ctx context.Context, client *khclient.Client, _ string, ref string) (khclient.Workspace, error) {
 	if ref == "" {
 		return khclient.Workspace{}, kherrors.ErrMissingFlag.New("workspace uuid is required")
 	}
@@ -64,4 +64,11 @@ func projectRefOrEnv(flagValue string, cfg config.Config) string {
 		return flagValue
 	}
 	return config.FromEnvOr(cfg, "KH_PROJECT", "")
+}
+
+func workspaceRefOrEnv(flagValue string, cfg config.Config) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	return config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 }

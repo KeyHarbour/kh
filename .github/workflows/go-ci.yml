@@ -12,6 +12,7 @@ permissions:
   contents: read
 
 jobs:
+  # ── Build, test, coverage ──────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
 
@@ -22,30 +23,56 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
 
-      - name: Build & Test
+      - name: Verify modules
         run: |
-          go version
           make tidy
           if ! git diff --quiet go.mod go.sum; then
             echo "go.mod/go.sum are out of date — run 'go mod tidy' locally"
             git diff go.mod go.sum
             exit 1
           fi
-          make vet
+
+      - name: Format check
+        run: |
           make fmt
           if ! git diff --quiet; then
             echo "Go files are not formatted — run 'go fmt ./...' locally"
             git diff
             exit 1
           fi
-          make build
-          make test
-          make coverage-report
 
-      - name: Upload coverage
+      - name: Vet
+        run: make vet
+
+      - name: Build
+        run: make build
+
+      - name: Test with coverage
+        run: |
+          mkdir -p coverage
+          go test -covermode=atomic -coverprofile=coverage/coverage.out ./...
+          go tool cover -html=coverage/coverage.out -o coverage/coverage.html
+          go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
+
+      - name: Coverage summary
+        run: |
+          TOTAL=$(grep '^total:' coverage/coverage.txt | awk '{print $NF}')
+          {
+            echo "## Test Coverage: ${TOTAL}"
+            echo ""
+            echo "<details><summary>Per-function breakdown</summary>"
+            echo ""
+            echo '```'
+            cat coverage/coverage.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
         uses: actions/upload-artifact@v6
         with:
           name: coverage
@@ -56,3 +83,78 @@ jobs:
         with:
           name: kh-binary
           path: bin/kh
+
+  # ── Lint ──────────────────────────────────────────────────────────────────
+  # Results appear as PR review annotations and in Security → Code Scanning.
+  # Requires security-events: write (Code Scanning is free for public repos;
+  # private repos need GitHub Advanced Security).
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+          install-mode: goinstall
+
+      # Second pass outputs SARIF for the Security tab.
+      # golangci-lint is in PATH after the action above.
+      - name: golangci-lint SARIF
+        if: always()
+        run: |
+          golangci-lint run --out-format sarif --timeout=5m > golangci.sarif || true
+          test -f golangci.sarif || printf '{"version":"2.1.0","runs":[]}' > golangci.sarif
+
+      - name: Upload lint SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: golangci.sarif
+          category: golangci-lint
+
+  # ── Security ──────────────────────────────────────────────────────────────
+  # govulncheck: fails the job if known CVEs are found in the dependency graph.
+  # gosec:       static analysis for Go security issues, uploaded to Code Scanning.
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          govulncheck ./...
+
+      - name: gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt sarif -out gosec.sarif ./... || true
+          test -f gosec.sarif || printf '{"version":"2.1.0","runs":[]}' > gosec.sarif
+
+      - name: Upload gosec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: gosec.sarif
+          category: gosec

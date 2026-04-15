@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -237,10 +239,12 @@ func TestKVGet_RevealFlag(t *testing.T) {
 
 func TestKVSet_SendsCorrectPayload(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
@@ -250,17 +254,22 @@ func TestKVSet_SendsCorrectPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"key":"NEW_KEY"`) {
-		t.Errorf("expected key in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["key"] != "NEW_KEY" {
+		t.Errorf("expected key NEW_KEY in form, got: %#v", fields)
 	}
-	if !strings.Contains(string(bodyBytes), `"value":"new-value"`) {
-		t.Errorf("expected value in body, got: %s", bodyBytes)
+	if fields["value"] != "new-value" {
+		t.Errorf("expected value new-value in form, got: %#v", fields)
+	}
+	if _, ok := fields["valuefile"]; ok {
+		t.Errorf("did not expect valuefile form field for regular values, got: %#v", fields)
 	}
 }
 
 func TestKVSet_WorkspaceUUIDNoProjectRequired(t *testing.T) {
 	const wsUUID = "11111111-2222-3333-4444-555555555555"
 	var bodyBytes []byte
+	var contentType string
 	l, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -274,6 +283,7 @@ func TestKVSet_WorkspaceUUIDNoProjectRequired(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
@@ -287,8 +297,9 @@ func TestKVSet_WorkspaceUUIDNoProjectRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed without --project: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"key":"NEW_KEY"`) {
-		t.Errorf("expected key in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["key"] != "NEW_KEY" {
+		t.Errorf("expected key NEW_KEY in form, got: %#v", fields)
 	}
 }
 
@@ -366,7 +377,9 @@ func TestKVSet_EncryptsValueWhenKeyProvided(t *testing.T) {
 
 func TestKVSet_NoEncryptionWithoutKey(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
@@ -378,8 +391,9 @@ func TestKVSet_NoEncryptionWithoutKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"value":"plaintext"`) {
-		t.Errorf("expected plaintext value in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["value"] != "plaintext" {
+		t.Errorf("expected plaintext value in body, got: %#v", fields)
 	}
 }
 
@@ -530,10 +544,12 @@ func writeValueFile(t *testing.T, content string) string {
 
 func TestKVSet_ValueFile(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
@@ -545,11 +561,15 @@ func TestKVSet_ValueFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"key":"FILE_KEY"`) {
-		t.Errorf("expected key in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["key"] != "FILE_KEY" {
+		t.Errorf("expected key FILE_KEY in form, got: %#v", fields)
 	}
-	if !strings.Contains(string(bodyBytes), `"value":"value-from-file"`) {
-		t.Errorf("expected file content as value in body, got: %s", bodyBytes)
+	if fields["value-file"] != "value-from-file" {
+		t.Errorf("expected file content as value-file in form, got: %#v", fields)
+	}
+	if _, ok := fields["value"]; ok {
+		t.Errorf("did not expect value form field for --value-file input, got: %#v", fields)
 	}
 }
 
@@ -612,10 +632,12 @@ func TestKVSet_KHWorkspaceEnvVar(t *testing.T) {
 
 func TestKVUpdate_ValueFile(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	})
@@ -625,8 +647,12 @@ func TestKVUpdate_ValueFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"value":"updated-from-file"`) {
-		t.Errorf("expected file content as value in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["value-file"] != "updated-from-file" {
+		t.Errorf("expected file content as value-file in form, got: %#v", fields)
+	}
+	if _, ok := fields["value"]; ok {
+		t.Errorf("did not expect value form field for --value-file input, got: %#v", fields)
 	}
 }
 
@@ -644,10 +670,12 @@ func TestKVUpdate_ValueFile_AndFlagMutuallyExclusive(t *testing.T) {
 
 func TestKVUpdate_PositionalArg(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	})
@@ -656,8 +684,12 @@ func TestKVUpdate_PositionalArg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"value":"new-value"`) {
-		t.Errorf("expected positional value in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["value"] != "new-value" {
+		t.Errorf("expected positional value in form, got: %#v", fields)
+	}
+	if _, ok := fields["valuefile"]; ok {
+		t.Errorf("did not expect valuefile form field for regular values, got: %#v", fields)
 	}
 }
 
@@ -697,10 +729,12 @@ func TestKVUpdate_NoValueReturnsError(t *testing.T) {
 
 func TestKVUpdate_BarePrivateFlag(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
 		}
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	})
@@ -709,8 +743,9 @@ func TestKVUpdate_BarePrivateFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"private":true`) {
-		t.Errorf("expected private:true in body with bare --private, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["private"] != "true" {
+		t.Errorf("expected private=true in form with bare --private, got: %#v", fields)
 	}
 }
 
@@ -759,7 +794,9 @@ func TestParseExpiresIn_Invalid(t *testing.T) {
 
 func TestKVSet_ExpiresIn_SendsISO8601(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
@@ -773,13 +810,10 @@ func TestKVSet_ExpiresIn_SendsISO8601(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	var body map[string]any
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		t.Fatalf("invalid body JSON: %v", err)
-	}
-	raw, ok := body["expires_at"].(string)
-	if !ok || raw == "" {
-		t.Fatalf("expected expires_at in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	raw := fields["expires_at"]
+	if raw == "" {
+		t.Fatalf("expected expires_at in form, got: %#v", fields)
 	}
 	parsed, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
@@ -808,7 +842,9 @@ func TestKVSet_ExpiresIn_AndExpiresAt_MutuallyExclusive(t *testing.T) {
 
 func TestKVUpdate_ExpiresIn_SendsISO8601(t *testing.T) {
 	var bodyBytes []byte
+	var contentType string
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
 		bodyBytes, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	})
@@ -818,13 +854,10 @@ func TestKVUpdate_ExpiresIn_SendsISO8601(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
-	var body map[string]any
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		t.Fatalf("invalid body JSON: %v", err)
-	}
-	raw, ok := body["expires_at"].(string)
-	if !ok || raw == "" {
-		t.Fatalf("expected expires_at in body, got: %s", bodyBytes)
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	raw := fields["expires_at"]
+	if raw == "" {
+		t.Fatalf("expected expires_at in form, got: %#v", fields)
 	}
 	parsed, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
@@ -1080,6 +1113,34 @@ func assertKVKHError(t *testing.T, err error, wantCode string) {
 	if khErr.Code != wantCode {
 		t.Errorf("Code = %q, want %q", khErr.Code, wantCode)
 	}
+}
+
+func parseMultipartBodyFields(t *testing.T, contentType string, body []byte) map[string]string {
+	t.Helper()
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		t.Fatalf("parse content-type: %v", err)
+	}
+	if mediaType != "multipart/form-data" {
+		t.Fatalf("expected multipart/form-data, got %q", mediaType)
+	}
+	mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	fields := map[string]string{}
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read multipart part: %v", err)
+		}
+		b, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatalf("read multipart value: %v", err)
+		}
+		fields[part.FormName()] = string(b)
+	}
+	return fields
 }
 
 func TestKVSet_ConflictingValueSources(t *testing.T) {

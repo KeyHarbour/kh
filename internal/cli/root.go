@@ -41,7 +41,7 @@ Environment variables:
   KH_TOKEN             Bearer token for authentication
   KH_ORG               Default organization slug
   KH_PROJECT           Default project UUID
-  KH_WORKSPACE         Default workspace name or UUID
+  KH_WORKSPACE         Default workspace UUID
   KH_CONCURRENCY       Default parallelism for bulk operations (default: 4)
   KH_OUTPUT            Default output format: table|json
   KH_DEBUG             Set to 1 for verbose debug logging

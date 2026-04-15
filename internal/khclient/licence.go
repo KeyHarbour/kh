@@ -43,17 +43,24 @@ func (c *Client) GetApplication(ctx context.Context, uuid string) (Application, 
 	return out, nil
 }
 
-// CreateApplication creates a new application.
-func (c *Client) CreateApplication(ctx context.Context, req CreateApplicationRequest) error {
+// CreateApplication creates a new application and returns the created record.
+func (c *Client) CreateApplication(ctx context.Context, req CreateApplicationRequest) (Application, error) {
 	body := struct {
 		Application CreateApplicationRequest `json:"application"`
 	}{Application: req}
 	resp, err := c.do(ctx, http.MethodPost, "/license/applications", nil, body, nil)
 	if err != nil {
-		return err
+		return Application{}, err
 	}
 	defer resp.Body.Close()
-	return expectStatus("create application", resp, http.StatusCreated)
+	if err := expectStatus("create application", resp, http.StatusCreated); err != nil {
+		return Application{}, err
+	}
+	var out Application
+	if err := decodeJSON(resp, &out); err != nil {
+		return Application{}, err
+	}
+	return out, nil
 }
 
 // UpdateApplication updates an existing application.

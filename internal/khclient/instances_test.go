@@ -90,12 +90,13 @@ func TestCreateInstance(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		bodyBytes, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+		json.NewEncoder(w).Encode(Instance{UUID: "inst-uuid-1", Name: "Production", ShortName: "prod"})
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.CreateInstance(context.Background(), "app-1", CreateInstanceRequest{
+	inst, err := c.CreateInstance(context.Background(), "app-1", CreateInstanceRequest{
 		Name:      "Production",
 		ShortName: "prod",
 		Owner:     "ops",
@@ -103,15 +104,18 @@ func TestCreateInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
+	if inst.UUID != "inst-uuid-1" {
+		t.Fatalf("expected uuid inst-uuid-1, got %s", inst.UUID)
+	}
 	var m map[string]any
 	if err := json.Unmarshal(bodyBytes, &m); err != nil {
 		t.Fatalf("invalid body JSON: %v", err)
 	}
-	inst, _ := m["instance"].(map[string]any)
-	if inst == nil {
+	wrapper, _ := m["instance"].(map[string]any)
+	if wrapper == nil {
 		t.Fatalf("expected instance wrapper in body, got: %s", bodyBytes)
 	}
-	if inst["name"] != "Production" {
+	if wrapper["name"] != "Production" {
 		t.Fatalf("expected name in body, got: %s", bodyBytes)
 	}
 }
@@ -121,7 +125,7 @@ func TestCreateInstance_RequiresApplicationUUID(t *testing.T) {
 		t.Fatal("server should not be called")
 	})
 	c := New(config.Config{Endpoint: srv.URL})
-	if err := c.CreateInstance(context.Background(), "", CreateInstanceRequest{Name: "x"}); err == nil {
+	if _, err := c.CreateInstance(context.Background(), "", CreateInstanceRequest{Name: "x"}); err == nil {
 		t.Fatal("expected error for empty application uuid")
 	}
 }

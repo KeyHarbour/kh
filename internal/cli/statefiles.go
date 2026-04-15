@@ -57,7 +57,7 @@ Commands that operate on a specific version (get, rm) only require the
 statefile UUID — no --project or --workspace flags needed.`,
 	}
 	cmd.PersistentFlags().StringVar(&target.project, "project", "", "Project UUID (or KH_PROJECT)")
-	cmd.PersistentFlags().StringVar(&target.workspace, "workspace", "", "Workspace name or UUID")
+	cmd.PersistentFlags().StringVar(&target.workspace, "workspace", "", "Workspace UUID (or KH_WORKSPACE)")
 	cmd.AddCommand(newStatefilesListCmd(target))
 	cmd.AddCommand(newStatefilesLastCmd(target))
 	cmd.AddCommand(newStatefilesGetCmd(target))
@@ -162,7 +162,7 @@ Examples:
 	return cmd
 }
 
-func newStatefilesGetCmd(target *statefileTarget) *cobra.Command {
+func newStatefilesGetCmd(_ *statefileTarget) *cobra.Command {
 	var raw bool
 	cmd := &cobra.Command{
 		Use:   "get <uuid>",
@@ -276,7 +276,7 @@ Examples:
 	return cmd
 }
 
-func newStatefilesDeleteCmd(target *statefileTarget) *cobra.Command {
+func newStatefilesDeleteCmd(_ *statefileTarget) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <uuid>",
 		Short: "Delete a specific statefile version by UUID",

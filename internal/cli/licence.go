@@ -29,10 +29,10 @@ Subcommands:
   update       Update a license record
   delete       Delete a license record
   import       Import license records from a CSV file
+  export       Export license records to CSV
   instance     Manage instances of a licensed application
   licensee     Manage licensees assigned to an instance
-  team-member  Manage team members associated with licenses
-  users        Manage license team members`,
+  team-member  Manage team members associated with licenses`,
 	}
 	cmd.AddCommand(newLicenseListCmd())
 	cmd.AddCommand(newLicenseShowCmd())
@@ -40,17 +40,17 @@ Subcommands:
 	cmd.AddCommand(newLicenseUpdateCmd())
 	cmd.AddCommand(newLicenseDeleteCmd())
 	cmd.AddCommand(newLicenseImportCmd())
+	cmd.AddCommand(newLicenseExportCmd())
 	cmd.AddCommand(newLicenseInstanceCmd())
 	cmd.AddCommand(newLicenseLicenseeCmd())
 	cmd.AddCommand(newLicenseTeamMemberCmd())
-	cmd.AddCommand(newUsersCmd())
 	return cmd
 }
 
 // ── ls ────────────────────────────────────────────────────────────────────────
 
 func newLicenseListCmd() *cobra.Command {
-	var format string
+	var format, vendor, owner, status, renewalBefore string
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List all license records",
@@ -65,6 +65,38 @@ func newLicenseListCmd() *cobra.Command {
 				return err
 			}
 
+			// Client-side filtering.
+			var beforeDate time.Time
+			if renewalBefore != "" {
+				beforeDate, err = time.Parse("2006-01-02", renewalBefore)
+				if err != nil {
+					return fmt.Errorf("--renewal-before: expected YYYY-MM-DD, got %q", renewalBefore)
+				}
+			}
+			filtered := items[:0]
+			for _, a := range items {
+				if vendor != "" && a.Vendor != vendor {
+					continue
+				}
+				if owner != "" && a.Owner != owner {
+					continue
+				}
+				if status != "" && a.Status != status {
+					continue
+				}
+				if !beforeDate.IsZero() {
+					if a.RenewalDate == "" {
+						continue
+					}
+					rd, err := time.Parse("2006-01-02", a.RenewalDate)
+					if err != nil || !rd.Before(beforeDate) {
+						continue
+					}
+				}
+				filtered = append(filtered, a)
+			}
+			items = filtered
+
 			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(items)
@@ -73,11 +105,6 @@ func newLicenseListCmd() *cobra.Command {
 			headers := []string{"UUID", "NAME", "SHORT NAME", "VENDOR", "OWNER", "TIER", "RENEWAL DATE", "STATUS"}
 			rows := make([][]string, 0, len(items))
 			for _, a := range items {
-				seats := "-"
-				if a.Seats != nil {
-					seats = fmt.Sprintf("%d", *a.Seats)
-				}
-				_ = seats // seats shown in show, not ls to keep table narrow
 				rows = append(rows, []string{
 					a.UUID, a.Name, a.ShortName, a.Vendor, a.Owner,
 					orDash(a.Tier), orDash(a.RenewalDate), orDash(a.Status),
@@ -87,12 +114,17 @@ func newLicenseListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
+	cmd.Flags().StringVar(&vendor, "vendor", "", "Filter by vendor name")
+	cmd.Flags().StringVar(&owner, "owner", "", "Filter by owner")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status (active|disabled|archived)")
+	cmd.Flags().StringVar(&renewalBefore, "renewal-before", "", "Show only licenses with renewal date before YYYY-MM-DD")
 	return cmd
 }
 
 // ── show ──────────────────────────────────────────────────────────────────────
 
 func newLicenseShowCmd() *cobra.Command {
+	var format string
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show license record details",
@@ -107,9 +139,26 @@ func newLicenseShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(app)
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(app)
+			}
+			seats := "-"
+			if app.Seats != nil {
+				seats = strconv.Itoa(*app.Seats)
+			}
+			unitCost := "-"
+			if app.UnitCost != nil {
+				unitCost = fmt.Sprintf("%g", *app.UnitCost)
+			}
+			headers := []string{"UUID", "NAME", "SHORT NAME", "VENDOR", "OWNER", "TIER", "SEATS", "UNIT COST", "RENEWAL DATE", "STATUS"}
+			return printer.Table(headers, [][]string{{
+				app.UUID, app.Name, app.ShortName, app.Vendor, app.Owner,
+				orDash(app.Tier), seats, unitCost, orDash(app.RenewalDate), orDash(app.Status),
+			}})
 		},
 	}
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
 	return cmd
 }
 
@@ -146,10 +195,11 @@ func newLicenseCreateCmd() *cobra.Command {
 				req.UnitCost = &unitCost
 			}
 
-			if err := client.CreateApplication(ctx, req); err != nil {
+			app, err := client.CreateApplication(ctx, req)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "License %q created.\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "License %q created (uuid: %s).\n", args[0], app.UUID)
 			return nil
 		},
 	}
@@ -160,9 +210,9 @@ func newLicenseCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tier, "tier", "", "License tier or edition (e.g. Enterprise, Plus)")
 	cmd.Flags().IntVar(&seats, "seats", 0, "Number of licensed seats")
 	cmd.Flags().Float64Var(&unitCost, "unit-cost", 0, "Unit cost per seat")
-	cmd.MarkFlagRequired("short-name")
-	cmd.MarkFlagRequired("owner")
-	cmd.MarkFlagRequired("vendor")
+	_ = cmd.MarkFlagRequired("short-name")
+	_ = cmd.MarkFlagRequired("owner")
+	_ = cmd.MarkFlagRequired("vendor")
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		seatsSet = cmd.Flags().Changed("seats")
 		unitCostSet = cmd.Flags().Changed("unit-cost")
@@ -273,10 +323,19 @@ func newLicenseDeleteCmd() *cobra.Command {
 //
 // Only name, short_name, owner, and vendor are required; the rest are optional.
 func newLicenseImportCmd() *cobra.Command {
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import <file.csv>",
 		Short: "Import license records from a CSV file",
-		Args:  cobra.ExactArgs(1),
+		Long: `Import license records from a CSV file.
+
+Expected columns (header row required): name, short_name, owner, vendor, renewal_date, tier, seats, unit_cost
+Only name, short_name, owner, and vendor are required.
+
+Examples:
+  kh license import licenses.csv
+  kh license import licenses.csv --dry-run`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := os.Open(args[0])
 			if err != nil {
@@ -330,8 +389,14 @@ func newLicenseImportCmd() *cobra.Command {
 					}
 				}
 
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "would create: %s\n", req.Name)
+					created++
+					continue
+				}
+
 				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-				err = client.CreateApplication(ctx, req)
+				_, err = client.CreateApplication(ctx, req)
 				cancel()
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: %s — %v\n", line, req.Name, err)
@@ -346,6 +411,72 @@ func newLicenseImportCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview what would be created without writing")
+	return cmd
+}
+
+// ── export ────────────────────────────────────────────────────────────────────
+
+func newLicenseExportCmd() *cobra.Command {
+	var outFile string
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export license records to CSV",
+		Long: `Export all license records to CSV format.
+
+Columns: name, short_name, owner, vendor, renewal_date, tier, seats, unit_cost, status
+
+Output goes to stdout by default; use --out to write to a file.
+
+Examples:
+  kh license export
+  kh license export --out licenses.csv`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := config.LoadWithEnv()
+			client := khclient.New(cfg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
+			items, err := client.ListApplications(ctx)
+			if err != nil {
+				return err
+			}
+
+			var w io.Writer = cmd.OutOrStdout()
+			if outFile != "" {
+				f, err := os.Create(outFile)
+				if err != nil {
+					return fmt.Errorf("create %s: %w", outFile, err)
+				}
+				defer f.Close()
+				w = f
+			}
+
+			cw := csv.NewWriter(w)
+			if err := cw.Write([]string{"name", "short_name", "owner", "vendor", "renewal_date", "tier", "seats", "unit_cost", "status"}); err != nil {
+				return err
+			}
+			for _, a := range items {
+				seats := ""
+				if a.Seats != nil {
+					seats = fmt.Sprintf("%d", *a.Seats)
+				}
+				unitCost := ""
+				if a.UnitCost != nil {
+					unitCost = fmt.Sprintf("%g", *a.UnitCost)
+				}
+				if err := cw.Write([]string{
+					a.Name, a.ShortName, a.Owner, a.Vendor,
+					a.RenewalDate, a.Tier, seats, unitCost, a.Status,
+				}); err != nil {
+					return err
+				}
+			}
+			cw.Flush()
+			return cw.Error()
+		},
+	}
+	cmd.Flags().StringVar(&outFile, "out", "", "Write CSV to this file instead of stdout")
 	return cmd
 }
 
@@ -363,12 +494,22 @@ func newLicenseInstanceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instance",
 		Short: "Manage instances of a license application",
+		Long: `Manage instances of a licensed application.
+
+Subcommands:
+  ls      List instances for an application
+  show    Show instance details
+  create  Create a new instance
+  update  Update an instance
+  delete  Delete an instance
+  import  Bulk-create instances from a CSV file`,
 	}
 	cmd.AddCommand(newLicenseInstanceListCmd())
 	cmd.AddCommand(newLicenseInstanceShowCmd())
 	cmd.AddCommand(newLicenseInstanceCreateCmd())
 	cmd.AddCommand(newLicenseInstanceUpdateCmd())
 	cmd.AddCommand(newLicenseInstanceDeleteCmd())
+	cmd.AddCommand(newLicenseInstanceImportCmd())
 	return cmd
 }
 
@@ -407,6 +548,7 @@ func newLicenseInstanceListCmd() *cobra.Command {
 }
 
 func newLicenseInstanceShowCmd() *cobra.Command {
+	var format string
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show instance details",
@@ -421,9 +563,26 @@ func newLicenseInstanceShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(inst)
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(inst)
+			}
+			seats := "-"
+			if inst.Seats != nil {
+				seats = strconv.Itoa(*inst.Seats)
+			}
+			unitCost := "-"
+			if inst.UnitCost != nil {
+				unitCost = fmt.Sprintf("%g", *inst.UnitCost)
+			}
+			headers := []string{"UUID", "NAME", "SHORT NAME", "OWNER", "SEATS", "UNIT COST", "RENEWAL DATE", "STATUS"}
+			return printer.Table(headers, [][]string{{
+				inst.UUID, inst.Name, inst.ShortName, orDash(inst.Owner),
+				seats, unitCost, orDash(inst.RenewalDate), orDash(inst.Status),
+			}})
 		},
 	}
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
 	return cmd
 }
 
@@ -454,10 +613,11 @@ func newLicenseInstanceCreateCmd() *cobra.Command {
 				req.UnitCost = &unitCost
 			}
 
-			if err := client.CreateInstance(ctx, args[0], req); err != nil {
+			inst, err := client.CreateInstance(ctx, args[0], req)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Instance %q created.\n", args[1])
+			fmt.Fprintf(cmd.OutOrStdout(), "Instance %q created (uuid: %s).\n", args[1], inst.UUID)
 			return nil
 		},
 	}
@@ -466,7 +626,7 @@ func newLicenseInstanceCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&renewalDate, "renewal-date", "", "Renewal date (YYYY-MM-DD)")
 	cmd.Flags().IntVar(&seats, "seats", 0, "Number of seats")
 	cmd.Flags().Float64Var(&unitCost, "unit-cost", 0, "Unit cost per seat")
-	cmd.MarkFlagRequired("short-name")
+	_ = cmd.MarkFlagRequired("short-name")
 	return cmd
 }
 
@@ -552,6 +712,105 @@ func newLicenseInstanceDeleteCmd() *cobra.Command {
 	return cmd
 }
 
+// newLicenseInstanceImportCmd bulk-creates instances for an application from CSV.
+//
+// Expected columns (header row required):
+//
+//	name, short_name, owner, renewal_date, seats, unit_cost
+//
+// Only name and short_name are required; the rest are optional.
+func newLicenseInstanceImportCmd() *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "import <application-uuid> <file.csv>",
+		Short: "Import instances from a CSV file",
+		Long: `Bulk-create instances for an application from a CSV file.
+
+Expected columns (header row required): name, short_name, owner, renewal_date, seats, unit_cost
+Only name and short_name are required.
+
+Examples:
+  kh license instance import <app-uuid> instances.csv
+  kh license instance import <app-uuid> instances.csv --dry-run`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			appUUID := args[0]
+			f, err := os.Open(args[1])
+			if err != nil {
+				return fmt.Errorf("open %s: %w", args[1], err)
+			}
+			defer f.Close()
+
+			r := csv.NewReader(f)
+			r.TrimLeadingSpace = true
+
+			header, err := r.Read()
+			if err != nil {
+				return fmt.Errorf("read header: %w", err)
+			}
+			idx := csvIndex(header)
+
+			cfg, _ := config.LoadWithEnv()
+			client := khclient.New(cfg)
+
+			var created, skipped int
+			for line := 2; ; line++ {
+				record, err := r.Read()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return fmt.Errorf("line %d: %w", line, err)
+				}
+
+				req := khclient.CreateInstanceRequest{
+					Name:        csvField(record, idx, "name"),
+					ShortName:   csvField(record, idx, "short_name"),
+					Owner:       csvField(record, idx, "owner"),
+					RenewalDate: csvField(record, idx, "renewal_date"),
+				}
+				if req.Name == "" || req.ShortName == "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: skipping row — name and short_name are required\n", line)
+					skipped++
+					continue
+				}
+				if s := csvField(record, idx, "seats"); s != "" {
+					if n, err := strconv.Atoi(s); err == nil {
+						req.Seats = &n
+					}
+				}
+				if s := csvField(record, idx, "unit_cost"); s != "" {
+					if v, err := strconv.ParseFloat(s, 64); err == nil {
+						req.UnitCost = &v
+					}
+				}
+
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "would create: %s\n", req.Name)
+					created++
+					continue
+				}
+
+				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+				_, err = client.CreateInstance(ctx, appUUID, req)
+				cancel()
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: %s — %v\n", line, req.Name, err)
+					skipped++
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "created: %s\n", req.Name)
+				created++
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%d created, %d skipped\n", created, skipped)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview what would be created without writing")
+	return cmd
+}
+
 // ── license licensee ──────────────────────────────────────────────────────────
 
 func newLicenseLicenseeCmd() *cobra.Command {
@@ -589,10 +848,10 @@ func newLicenseLicenseeListCmd() *cobra.Command {
 				return printer.JSON(items)
 			}
 
-			headers := []string{"UUID", "STATUS"}
+			headers := []string{"UUID", "NAME", "EMAIL", "STATUS"}
 			rows := make([][]string, 0, len(items))
 			for _, l := range items {
-				rows = append(rows, []string{l.UUID, orDash(l.Status)})
+				rows = append(rows, []string{l.UUID, orDash(l.Name), orDash(l.Email), orDash(l.Status)})
 			}
 			return printer.Table(headers, rows)
 		},
@@ -602,6 +861,7 @@ func newLicenseLicenseeListCmd() *cobra.Command {
 }
 
 func newLicenseLicenseeShowCmd() *cobra.Command {
+	var format string
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show licensee details",
@@ -616,9 +876,15 @@ func newLicenseLicenseeShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(l)
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(l)
+			}
+			headers := []string{"UUID", "NAME", "EMAIL", "STATUS"}
+			return printer.Table(headers, [][]string{{l.UUID, orDash(l.Name), orDash(l.Email), orDash(l.Status)}})
 		},
 	}
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
 	return cmd
 }
 
@@ -663,7 +929,7 @@ func newLicenseLicenseeUpdateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "New status (active|disabled|archived)")
-	cmd.MarkFlagRequired("status")
+	_ = cmd.MarkFlagRequired("status")
 	return cmd
 }
 
@@ -706,6 +972,7 @@ func newLicenseTeamMemberCmd() *cobra.Command {
 	cmd.AddCommand(newLicenseTeamMemberAddCmd())
 	cmd.AddCommand(newLicenseTeamMemberUpdateCmd())
 	cmd.AddCommand(newLicenseTeamMemberDeleteCmd())
+	cmd.AddCommand(newLicenseTeamMemberImportCmd())
 	return cmd
 }
 
@@ -747,6 +1014,7 @@ func newLicenseTeamMemberListCmd() *cobra.Command {
 }
 
 func newLicenseTeamMemberShowCmd() *cobra.Command {
+	var format string
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show team member details",
@@ -761,9 +1029,19 @@ func newLicenseTeamMemberShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(m)
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(m)
+			}
+			mgr := "-"
+			if m.ManagerUUID != nil {
+				mgr = *m.ManagerUUID
+			}
+			headers := []string{"UUID", "MANAGER UUID"}
+			return printer.Table(headers, [][]string{{m.UUID, mgr}})
 		},
 	}
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
 	return cmd
 }
 
@@ -808,7 +1086,7 @@ func newLicenseTeamMemberUpdateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&managerUUID, "manager-uuid", "", "UUID of the manager (required)")
-	cmd.MarkFlagRequired("manager-uuid")
+	_ = cmd.MarkFlagRequired("manager-uuid")
 	return cmd
 }
 
@@ -836,5 +1114,95 @@ func newLicenseTeamMemberDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Confirm removal without prompting")
+	return cmd
+}
+
+// newLicenseTeamMemberImportCmd imports team members from a CSV file.
+//
+// Expected columns (header row required):
+//
+//	uuid, manager_uuid
+//
+// Only uuid is required; manager_uuid is optional.
+func newLicenseTeamMemberImportCmd() *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "import <file.csv>",
+		Short: "Import team members from a CSV file",
+		Long: `Import team members from a CSV file.
+
+Expected columns (header row required): uuid, manager_uuid
+Only uuid is required; manager_uuid is optional.
+
+Examples:
+  kh license team-member import members.csv
+  kh license team-member import members.csv --dry-run`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			f, err := os.Open(args[0])
+			if err != nil {
+				return fmt.Errorf("open %s: %w", args[0], err)
+			}
+			defer f.Close()
+
+			r := csv.NewReader(f)
+			r.TrimLeadingSpace = true
+
+			header, err := r.Read()
+			if err != nil {
+				return fmt.Errorf("read header: %w", err)
+			}
+			idx := csvIndex(header)
+
+			cfg, _ := config.LoadWithEnv()
+			client := khclient.New(cfg)
+
+			var created, skipped int
+			for line := 2; ; line++ {
+				record, err := r.Read()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return fmt.Errorf("line %d: %w", line, err)
+				}
+
+				uuid := csvField(record, idx, "uuid")
+				if uuid == "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: skipping row — uuid is required\n", line)
+					skipped++
+					continue
+				}
+
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "would create: %s\n", uuid)
+					created++
+					continue
+				}
+
+				ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+				err = client.CreateTeamMember(ctx, khclient.CreateTeamMemberRequest{UUID: uuid})
+				cancel()
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "line %d: %s — %v\n", line, uuid, err)
+					skipped++
+					continue
+				}
+
+				if managerUUID := csvField(record, idx, "manager_uuid"); managerUUID != "" {
+					ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+					_ = client.UpdateTeamMember(ctx, uuid, khclient.UpdateTeamMemberRequest{UUID: uuid, ManagerUUID: managerUUID})
+					cancel()
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "created: %s\n", uuid)
+				created++
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%d created, %d skipped\n", created, skipped)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview what would be created without writing")
 	return cmd
 }

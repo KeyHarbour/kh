@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,7 @@ import (
 // scaffoldTerraformProject creates a minimal Terraform project scaffold
 // under dir/<module>/<env> following best practices and using an HTTP backend
 // pointing to the KeyHarbour service.
-func scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
+func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, khProject string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
 	if name == "" {
 		return "", errors.New("name is required")
 	}
@@ -125,24 +124,6 @@ lock_method    = "POST"
 unlock_method  = "POST"
 retry_max      = 2
 `, endpoint, stateID, endpoint, stateID, endpoint, stateID)
-}
-
-// terraformBackendHCL generates backend.hcl for the Terraform HTTP backend using workspace UUIDs.
-// It uses only the scheme+host from endpoint so the path is constructed correctly regardless
-// of whether endpoint carries an /api/v2 suffix.
-func terraformBackendHCL(endpoint, projectUUID, workspaceUUID string) string {
-	base := endpoint
-	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
-		base = u.Scheme + "://" + u.Host
-	}
-	basePath := fmt.Sprintf("%s/api/v1/workspaces/%s/state", base, workspaceUUID)
-	return fmt.Sprintf(`address        = "%s"
-lock_address   = "%s/lock"
-unlock_address = "%s/lock"
-lock_method    = "POST"
-unlock_method  = "DELETE"
-retry_max      = 2
-`, basePath, basePath, basePath)
 }
 
 func terraformVersionsTF() string {

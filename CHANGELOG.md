@@ -1,7 +1,69 @@
-## v1.10.2 (2026-04-14)
+## v1.11.0 (2026-04-14)
+
+### Features
+* improve license show/licensee UX and consolidate team-member (b1c5372)
+* add missing license management functionality (5c4df22)
+
+### Bug Fixes
+* rename multipart field from valuefile to value-file (2c575d8)
+* resolve lint violations (errcheck, unparam, unused, ineffassign) (c9e0249)
+* support value vs valuefile kv payloads (905ca70)
 
 ### Maintenance
-* retry release to regenerate missing public tag
+* upgrade golangci-lint-action to v6 with goinstall mode (6b8c88b)
+* upgrade govulncheck and gosec for Go 1.26 compatibility (1d66940)
+* use Go 1.24 for lint job to match golangci-lint binary (17a4dbd)
+* use golangci-lint action v4 for better Go 1.26 compatibility (638b30d)
+* rebuild golangci-lint to match Go 1.26 version (f74cf13)
+* upgrade Go from 1.22 to 1.26 to fix stdlib vulnerabilities (8df5ae6)
+* fix golangci config and security workflow compatibility (cdc630a)
+* add coverage summary, lint, and security jobs to Go CI (4887ec2)
+
+### Documentation
+* update v1.10.2 changelog with full release summary (7c2c955)
+
+---
+
+## Unreleased
+
+### Improvements
+
+* `license show`, `license instance show`, `license licensee show`, and
+  `license team-member show` now accept `-o table|json`, consistent with all
+  other show commands in the CLI.
+* `license users` subcommand removed; functionality merged into
+  `license team-member` (which now includes `import`).
+* `license licensee ls` table expanded with NAME and EMAIL columns (dash when
+  the API does not return them). `Licensee` type gains `name` and `email`
+  fields.
+
+---
+
+## v1.10.2 (2026-04-14)
+
+### Summary
+This release consolidates all CLI changes shipped after v1.9.1, including
+error handling improvements, command UX cleanup, and release pipeline hardening.
+
+### Highlights
+* Added structured CLI error taxonomy (`kherrors`) with stable error codes and
+  clearer remediation hints.
+* Improved command help consistency across the CLI (short/long descriptions,
+  naming alignment, and environment variable guidance).
+* Hardened public sync and release flow to reduce squash-merge drift risks:
+  restore silently dropped files during sync and fail early with `go vet` when
+  merge artifacts introduce invalid code.
+* Updated CI formatting hygiene and GitHub Actions versions for newer runtime
+  compatibility.
+
+### Internal Changes
+* Reverted the experimental `--explain` scaffolding and related tests.
+* Applied repository-wide gofmt consistency fixes.
+
+### Upgrade Notes
+* No breaking CLI command changes are introduced in this release.
+* If you maintain release automation, continue to merge the generated
+  `sync/vX.Y.Z` PR into `kh/main` to trigger tagging and GoReleaser.
 
 ---
 

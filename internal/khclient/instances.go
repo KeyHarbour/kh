@@ -47,10 +47,10 @@ func (c *Client) GetInstance(ctx context.Context, uuid string) (Instance, error)
 	return out, nil
 }
 
-// CreateInstance creates a new instance under the given application.
-func (c *Client) CreateInstance(ctx context.Context, applicationUUID string, req CreateInstanceRequest) error {
+// CreateInstance creates a new instance under the given application and returns the created record.
+func (c *Client) CreateInstance(ctx context.Context, applicationUUID string, req CreateInstanceRequest) (Instance, error) {
 	if applicationUUID == "" {
-		return APIError{StatusCode: http.StatusBadRequest, Message: "application uuid is required"}
+		return Instance{}, APIError{StatusCode: http.StatusBadRequest, Message: "application uuid is required"}
 	}
 	body := struct {
 		Instance CreateInstanceRequest `json:"instance"`
@@ -58,10 +58,17 @@ func (c *Client) CreateInstance(ctx context.Context, applicationUUID string, req
 	p := "/license/applications/" + url.PathEscape(applicationUUID) + "/instances"
 	resp, err := c.do(ctx, http.MethodPost, p, nil, body, nil)
 	if err != nil {
-		return err
+		return Instance{}, err
 	}
 	defer resp.Body.Close()
-	return expectStatus("create instance", resp, http.StatusCreated)
+	if err := expectStatus("create instance", resp, http.StatusCreated); err != nil {
+		return Instance{}, err
+	}
+	var out Instance
+	if err := decodeJSON(resp, &out); err != nil {
+		return Instance{}, err
+	}
+	return out, nil
 }
 
 // UpdateInstance updates an existing instance.

@@ -2,10 +2,10 @@ package khclient
 
 import (
 	"context"
-	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
-	"strings"
 	"testing"
 
 	"kh/internal/config"
@@ -46,8 +46,8 @@ func TestGetKeyValue(t *testing.T) {
 		if r.URL.Path != "/keyvalues/MY_KEY" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"value":"hello","expires_at":null,"private":false}`)
+		w.Header().Set("Content-Type", "text/plain")
+		io.WriteString(w, "hello")
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
@@ -60,6 +60,31 @@ func TestGetKeyValue(t *testing.T) {
 	}
 	if kv.Value != "hello" {
 		t.Fatalf("expected value hello, got %q", kv.Value)
+	}
+	if string(kv.RawValue) != "hello" {
+		t.Fatalf("expected raw value hello, got %q", string(kv.RawValue))
+	}
+}
+
+func TestGetKeyValue_JSONResponse(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/keyvalues/MY_KEY" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"value":"hello","expires_at":null,"private":false}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	kv, err := c.GetKeyValue(context.Background(), "MY_KEY")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if kv.Value != "hello" {
+		t.Fatalf("expected value hello, got %q", kv.Value)
+	}
+	if string(kv.RawValue) != "hello" {
+		t.Fatalf("expected raw value hello, got %q", string(kv.RawValue))
 	}
 }
 
@@ -75,7 +100,7 @@ func TestGetKeyValue_RequiresKey(t *testing.T) {
 }
 
 func TestCreateKeyValue(t *testing.T) {
-	var bodyBytes []byte
+	var gotFields map[string]string
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
@@ -83,11 +108,7 @@ func TestCreateKeyValue(t *testing.T) {
 		if r.URL.Path != "/workspaces/ws/keyvalues" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var err error
-		bodyBytes, err = io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
+		gotFields = parseMultipartFields(t, r)
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"status":"accepted"}`)
@@ -101,13 +122,51 @@ func TestCreateKeyValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if !strings.Contains(string(bodyBytes), `"key":"NEW_KEY"`) {
-		t.Fatalf("expected key in body, got: %s", bodyBytes)
+	if gotFields["key"] != "NEW_KEY" {
+		t.Fatalf("expected key NEW_KEY in form, got: %#v", gotFields)
+	}
+	if gotFields["value"] != "new-value" {
+		t.Fatalf("expected value new-value in form, got: %#v", gotFields)
+	}
+	if _, ok := gotFields["valuefile"]; ok {
+		t.Fatalf("did not expect valuefile form field for regular values, got: %#v", gotFields)
+	}
+}
+
+func TestCreateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/workspaces/ws/keyvalues" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"status":"accepted"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
+		Key:       "NEW_KEY",
+		Value:     "new-value",
+		ValueFile: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if gotFields["value-file"] != "new-value" {
+		t.Fatalf("expected value-file new-value in form, got: %#v", gotFields)
+	}
+	if _, ok := gotFields["value"]; ok {
+		t.Fatalf("did not expect value form field for file-based values, got: %#v", gotFields)
 	}
 }
 
 func TestUpdateKeyValue(t *testing.T) {
-	var bodyBytes []byte
+	var gotFields map[string]string
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", r.Method)
@@ -115,11 +174,7 @@ func TestUpdateKeyValue(t *testing.T) {
 		if r.URL.Path != "/keyvalues/MY_KEY" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var err error
-		bodyBytes, err = io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
+		gotFields = parseMultipartFields(t, r)
 		w.WriteHeader(http.StatusAccepted)
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"status":"updated"}`)
@@ -130,13 +185,72 @@ func TestUpdateKeyValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	var m map[string]any
-	if err := json.Unmarshal(bodyBytes, &m); err != nil {
-		t.Fatalf("invalid body JSON: %v", err)
+	if gotFields["key"] != "MY_KEY" {
+		t.Fatalf("expected key MY_KEY in form, got: %#v", gotFields)
 	}
-	if m["value"] != "updated" {
-		t.Fatalf("expected value=updated in body, got: %s", bodyBytes)
+	if gotFields["value"] != "updated" {
+		t.Fatalf("expected value=updated in form, got: %#v", gotFields)
 	}
+	if _, ok := gotFields["value-file"]; ok {
+		t.Fatalf("did not expect value-file form field for regular values, got: %#v", gotFields)
+	}
+}
+
+func TestUpdateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		if r.URL.Path != "/keyvalues/MY_KEY" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusAccepted)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"status":"updated"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Value: "updated", ValueFile: true})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if gotFields["value-file"] != "updated" {
+		t.Fatalf("expected value-file=updated in form, got: %#v", gotFields)
+	}
+	if _, ok := gotFields["value"]; ok {
+		t.Fatalf("did not expect value form field for file-based values, got: %#v", gotFields)
+	}
+}
+
+func parseMultipartFields(t *testing.T, r *http.Request) map[string]string {
+	t.Helper()
+	ct := r.Header.Get("Content-Type")
+	mediaType, params, err := mime.ParseMediaType(ct)
+	if err != nil {
+		t.Fatalf("parse content-type: %v", err)
+	}
+	if mediaType != "multipart/form-data" {
+		t.Fatalf("expected multipart/form-data, got %q", mediaType)
+	}
+	mr := multipart.NewReader(r.Body, params["boundary"])
+	fields := map[string]string{}
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read multipart part: %v", err)
+		}
+		b, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatalf("read multipart value: %v", err)
+		}
+		fields[part.FormName()] = string(b)
+	}
+	return fields
 }
 
 func TestDeleteKeyValue(t *testing.T) {
