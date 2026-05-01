@@ -98,7 +98,7 @@ Examples:
 			if printer.Format == "json" {
 				return printer.JSON(items)
 			}
-			headers := []string{"UUID", "PUBLISHED_AT", "BYTES"}
+			headers := []string{"UUID", "PUBLISHED AT", "BYTES"}
 			rows := make([][]string, 0, len(items))
 			for _, sf := range items {
 				rows = append(rows, []string{
@@ -117,6 +117,7 @@ Examples:
 
 func newStatefilesLastCmd(target *statefileTarget) *cobra.Command {
 	var raw bool
+	var format string
 	cmd := &cobra.Command{
 		Use:   "last",
 		Short: "Show the latest statefile for a workspace",
@@ -148,7 +149,7 @@ Examples:
 				}
 				return nil
 			}
-			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(item)
 			}
@@ -159,11 +160,13 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw statefile content")
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json (overrides global)")
 	return cmd
 }
 
 func newStatefilesGetCmd(_ *statefileTarget) *cobra.Command {
 	var raw bool
+	var format string
 	cmd := &cobra.Command{
 		Use:   "get <uuid>",
 		Short: "Show a specific statefile by UUID",
@@ -177,7 +180,7 @@ Examples:
   kh tf version get <uuid> --raw`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return kherrors.ErrMissingFlag.New("statefiles get requires exactly one argument: <uuid>")
+				return kherrors.ErrMissingFlag.New("version get requires exactly one argument: <uuid>")
 			}
 			return nil
 		},
@@ -197,7 +200,7 @@ Examples:
 				}
 				return nil
 			}
-			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(item)
 			}
@@ -208,12 +211,14 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw statefile content")
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json (overrides global)")
 	return cmd
 }
 
 func newStatefilesPushCmd(target *statefileTarget) *cobra.Command {
 	var filePath string
 	var fromStdin bool
+	var format string
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Upload a new statefile version to a workspace",
@@ -259,7 +264,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
 			if printer.Format == "json" {
 				return printer.JSON(struct {
 					Action string `json:"action"`
@@ -273,6 +278,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to a Terraform state file")
 	cmd.Flags().BoolVar(&fromStdin, "stdin", false, "Read statefile content from stdin")
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json (overrides global)")
 	return cmd
 }
 
@@ -289,7 +295,7 @@ Examples:
   kh tf version rm <uuid>`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return kherrors.ErrMissingFlag.New("statefiles rm requires exactly one argument: <uuid>")
+				return kherrors.ErrMissingFlag.New("version rm requires exactly one argument: <uuid>")
 			}
 			return nil
 		},
@@ -301,7 +307,7 @@ Examples:
 			if err := client.DeleteStatefile(ctx, args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "statefile %s deleted\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "Statefile %s deleted\n", args[0])
 			return nil
 		},
 	}
@@ -336,7 +342,7 @@ Examples:
 			if err := client.DeleteStatefiles(ctx, workspace); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "all statefiles deleted")
+			fmt.Fprintln(cmd.OutOrStdout(), "All statefiles deleted")
 			return nil
 		},
 	}

@@ -2,7 +2,7 @@ package backend
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // TFC API protocol requires MD5 checksums; not used for security
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -54,7 +54,7 @@ func (w *TFCWriter) Put(ctx context.Context, key string, data []byte, overwrite 
 
 	// Prepare attributes
 	stateB64 := base64.StdEncoding.EncodeToString(data)
-	md5sum := md5.Sum(data)
+	md5sum := md5.Sum(data) //nolint:gosec // TFC API protocol requires MD5; not used for security
 	md5b64 := base64.StdEncoding.EncodeToString(md5sum[:])
 
 	attrs := map[string]any{

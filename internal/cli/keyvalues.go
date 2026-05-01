@@ -60,7 +60,7 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 	}
 	if workspaceRef == "" {
-		return "", errors.New("--workspace is required (or set KH_WORKSPACE)")
+		return "", kherrors.ErrMissingFlag.New("--workspace is required (or set KH_WORKSPACE)")
 	}
 
 	client := khclient.New(cfg)
@@ -68,7 +68,7 @@ func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error)
 	defer cancel()
 
 	if !looksLikeUUID(workspaceRef) {
-		return "", fmt.Errorf("workspace %q is not a valid UUID — workspace names are no longer supported, use the workspace UUID", workspaceRef)
+		return "", kherrors.ErrInvalidValue.Newf("workspace %q is not a valid UUID — workspace names are no longer supported, use the workspace UUID", workspaceRef)
 	}
 	ws, err := client.GetWorkspace(ctx, workspaceRef)
 	if err != nil {
@@ -207,6 +207,7 @@ Examples:
 func newKVGetCmd(opts *kvCmdOpts) *cobra.Command {
 	var reveal bool
 	var outputFile string
+	var privateAlias bool // hidden alias; --private on get is a common mistake
 	cmd := &cobra.Command{
 		Use:   "get <key>",
 		Short: "Print the raw value of a key",
@@ -224,8 +225,16 @@ Examples:
   kh kv get MY_SECRET --reveal
 	kh kv get CERT_PEM --output-file cert.pem
   export DB_URL=$(kh kv get DATABASE_URL)`,
-		Args: cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return kherrors.ErrMissingFlag.New("<key> argument is required: kh kv get <key>")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if privateAlias {
+				return kherrors.ErrMissingFlag.New("--private is not valid for 'get'; use --reveal to show masked values")
+			}
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -274,6 +283,8 @@ Examples:
 	}
 	cmd.Flags().BoolVar(&reveal, "reveal", false, "Show value even if the key is private")
 	cmd.Flags().StringVar(&outputFile, "output-file", "", "Write the raw value bytes to a file")
+	cmd.Flags().BoolVar(&privateAlias, "private", false, "")
+	cmd.Flags().MarkHidden("private") //nolint:errcheck
 	return cmd
 }
 
@@ -367,7 +378,15 @@ Examples:
   kh kv set TEMP_KEY value --workspace <uuid> --expires-in 30d
   kh kv set TEMP_KEY value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
   kh kv set CERT --value-file ./cert.pem --workspace <uuid>`,
-		Args: cobra.RangeArgs(1, 2),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return kherrors.ErrMissingFlag.New("<key> argument is required: kh kv set <key> <value> [flags]")
+			}
+			if len(args) > 2 {
+				return kherrors.ErrInvalidValue.Newf("too many arguments: expected <key> and optionally <value>, got %d", len(args))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hasValueArg := len(args) == 2
 			hasValueFile := cmd.Flags().Changed("value-file")
@@ -419,10 +438,10 @@ Examples:
 			}
 
 			req := khclient.CreateKeyValueRequest{
-				Key:       args[0],
-				Value:     value,
-				ValueFile: hasValueFile,
-				Private:   private,
+				Key:             args[0],
+				Payload:         value,
+				PayloadFromFile: hasValueFile,
+				Private:         private,
 			}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
@@ -475,7 +494,15 @@ Examples:
   kh kv update MY_KEY --value new-value --expires-in 7d
   kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z
   kh kv update MY_KEY --value new-value --workspace <uuid>`,
-		Args: cobra.RangeArgs(1, 2),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return kherrors.ErrMissingFlag.New("<key> argument is required: kh kv update <key> [flags]")
+			}
+			if len(args) > 2 {
+				return kherrors.ErrInvalidValue.Newf("too many arguments: expected <key> and optionally <value>, got %d", len(args))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hasValueArg := len(args) == 2
 			hasValue := cmd.Flags().Changed("value")
@@ -500,7 +527,7 @@ Examples:
 				return kherrors.ErrConflictingFlags.New("provide either a positional value or --value-file, not both")
 			}
 			if !hasValueArg && !hasValue && !hasValueFile {
-				return errors.New("a value is required: provide it as an argument, via --value, or via --value-file")
+				return kherrors.ErrMissingFlag.New("a value is required: provide it as an argument, via --value, or via --value-file")
 			}
 			if hasValueArg {
 				value = args[1]
@@ -530,7 +557,7 @@ Examples:
 				}
 			}
 
-			req := khclient.UpdateKeyValueRequest{Value: sendValue, ValueFile: hasValueFile}
+			req := khclient.UpdateKeyValueRequest{Payload: sendValue, PayloadFromFile: hasValueFile}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
 			}
@@ -559,10 +586,10 @@ Examples:
 					}
 					isPrivate := private == "true"
 					createReq := khclient.CreateKeyValueRequest{
-						Key:       args[0],
-						Value:     sendValue,
-						ValueFile: hasValueFile,
-						Private:   isPrivate,
+						Key:             args[0],
+						Payload:         sendValue,
+						PayloadFromFile: hasValueFile,
+						Private:         isPrivate,
 					}
 					if expiresAt != "" {
 						createReq.ExpiresAt = &expiresAt
@@ -762,7 +789,7 @@ Examples:
   kh kv run --workspace prod --environment staging -- printenv`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return errors.New("a command to run is required after --")
+				return kherrors.ErrMissingFlag.New("a command to run is required after --")
 			}
 			return nil
 		},

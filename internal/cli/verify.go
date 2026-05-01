@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
@@ -10,17 +11,18 @@ import (
 func newVerifyCmd() *cobra.Command {
 	var full bool
 	cmd := &cobra.Command{
-		Use:   "verify <state-id>",
-		Short: "Validate a state's integrity",
+		Use:    "verify <state-id>",
+		Short:  "Validate a state's integrity",
+		Hidden: true,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("verify requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
+				return kherrors.ErrMissingFlag.New("verify requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !full {
-				return fmt.Errorf("verify not implemented yet (use --full for stub output)")
+				return kherrors.ErrInternal.New("verify not implemented yet (use --full for stub output)")
 			}
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
 			if printer.Format == "json" {

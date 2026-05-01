@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"kh/internal/config"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 	"time"
 
@@ -24,14 +25,7 @@ func newStateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "state",
 		Short: "Inspect and manage Terraform states",
-		Long: `Inspect and manage Terraform states stored in KeyHarbour.
-
-Subcommands:
-  ls      List all states (filterable by project, module, workspace)
-  show    Print a state's full Terraform v4 JSON
-  lock    Acquire an advisory lock on a state
-  unlock  Release an advisory lock
-  verify  Validate a state's integrity (schema, lineage, serial, checksum)`,
+		Long:  `Inspect and manage Terraform states stored in KeyHarbour.`,
 	}
 	cmd.AddCommand(newStateLsCmd())
 	cmd.AddCommand(newStateShowCmd())
@@ -75,13 +69,13 @@ func newStateLsCmd() *cobra.Command {
 }
 
 func newStateShowCmd() *cobra.Command {
-	var raw bool
+	var meta bool
 	cmd := &cobra.Command{
 		Use:   "show <state-id>",
-		Short: "Show a state's JSON (Terraform v4)",
+		Short: "Show a state's full Terraform v4 JSON",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("state show requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
+				return kherrors.ErrMissingFlag.New("state show requires 1 argument: <state-id>. Tip: run 'kh tf state ls' to list IDs")
 			}
 			return nil
 		},
@@ -90,19 +84,19 @@ func newStateShowCmd() *cobra.Command {
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			b, meta, err := client.GetStateRaw(ctx, args[0])
+			b, stateMeta, err := client.GetStateRaw(ctx, args[0])
 			if err != nil {
 				return err
 			}
-			if raw {
-				enc := json.NewEncoder(cmd.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(json.RawMessage(b))
+			if meta {
+				return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(stateMeta)
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(meta)
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(json.RawMessage(b))
 		},
 	}
-	cmd.Flags().BoolVar(&raw, "raw", false, "Print raw Terraform v4 JSON")
+	cmd.Flags().BoolVar(&meta, "meta", false, "Show metadata summary instead of full state JSON")
 	return cmd
 }
 

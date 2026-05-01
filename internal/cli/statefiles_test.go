@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"kh/internal/config"
@@ -70,5 +71,52 @@ func TestStatefileTargetResolveUsesKHWorkspace(t *testing.T) {
 	}
 	if res.workspaceRef != "env-workspace" {
 		t.Fatalf("expected resolver to receive KH_WORKSPACE, got %q", res.workspaceRef)
+	}
+}
+
+func TestStatefileTargetResolveRequiresProject(t *testing.T) {
+	t.Setenv("KH_PROJECT", "")
+	target := statefileTarget{workspace: "ws"}
+	cfg := config.Config{}
+	_, _, err := target.resolve(context.Background(), &fakeResolver{}, cfg)
+	if err == nil || !strings.Contains(err.Error(), "--project") {
+		t.Fatalf("expected missing project error, got %v", err)
+	}
+}
+
+type errorResolver struct {
+	projectErr   error
+	workspaceErr error
+}
+
+func (r *errorResolver) ResolveProject(_ context.Context, _ string) (khclient.Project, error) {
+	if r.projectErr != nil {
+		return khclient.Project{}, r.projectErr
+	}
+	return khclient.Project{UUID: "proj-uuid"}, nil
+}
+
+func (r *errorResolver) ResolveWorkspace(_ context.Context, _, _ string) (khclient.Workspace, error) {
+	if r.workspaceErr != nil {
+		return khclient.Workspace{}, r.workspaceErr
+	}
+	return khclient.Workspace{UUID: "ws-uuid"}, nil
+}
+
+func TestStatefileTargetResolveProjectError(t *testing.T) {
+	target := statefileTarget{project: "p", workspace: "w"}
+	res := &errorResolver{projectErr: errors.New("project api error")}
+	_, _, err := target.resolve(context.Background(), res, config.Config{})
+	if err == nil || !strings.Contains(err.Error(), "project api error") {
+		t.Fatalf("expected project error, got %v", err)
+	}
+}
+
+func TestStatefileTargetResolveWorkspaceError(t *testing.T) {
+	target := statefileTarget{project: "p", workspace: "w"}
+	res := &errorResolver{workspaceErr: errors.New("workspace api error")}
+	_, _, err := target.resolve(context.Background(), res, config.Config{})
+	if err == nil || !strings.Contains(err.Error(), "workspace api error") {
+		t.Fatalf("expected workspace error, got %v", err)
 	}
 }

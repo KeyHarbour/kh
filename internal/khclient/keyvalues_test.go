@@ -116,8 +116,8 @@ func TestCreateKeyValue(t *testing.T) {
 
 	c := New(config.Config{Endpoint: srv.URL})
 	err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
-		Key:   "NEW_KEY",
-		Value: "new-value",
+		Key:     "NEW_KEY",
+		Payload: "new-value",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -150,9 +150,9 @@ func TestCreateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
 
 	c := New(config.Config{Endpoint: srv.URL})
 	err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
-		Key:       "NEW_KEY",
-		Value:     "new-value",
-		ValueFile: true,
+		Key:             "NEW_KEY",
+		Payload:         "new-value",
+		PayloadFromFile: true,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -181,7 +181,7 @@ func TestUpdateKeyValue(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Value: "updated"})
+	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Payload: "updated"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestUpdateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
-	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Value: "updated", ValueFile: true})
+	err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Payload: "updated", PayloadFromFile: true})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -221,6 +221,128 @@ func TestUpdateKeyValue_FromValueFileUsesValueFileField(t *testing.T) {
 	}
 	if _, ok := gotFields["value"]; ok {
 		t.Fatalf("did not expect value form field for file-based values, got: %#v", gotFields)
+	}
+}
+
+// TestUpdateKeyValue_SwitchFromFileToPlainValue verifies that a key originally
+// created with a file payload can be updated with a plain text value. The
+// backend accepts either payload form; the client must send the correct field
+// (value, not value_file) and must NOT send both at the same time.
+func TestUpdateKeyValue_SwitchFromFileToPlainValue(t *testing.T) {
+	var calls []map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			calls = append(calls, parseMultipartFields(t, r))
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, `{"status":"created"}`)
+		case http.MethodPatch:
+			calls = append(calls, parseMultipartFields(t, r))
+			w.WriteHeader(http.StatusAccepted)
+			io.WriteString(w, `{"status":"updated"}`)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+
+	// First call: create the key with a file payload.
+	if err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
+		Key:             "CERT",
+		Payload:         "-----BEGIN CERTIFICATE-----",
+		PayloadFromFile: true,
+	}); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	// Second call: update the same key with a plain text value.
+	if err := c.UpdateKeyValue(context.Background(), "CERT", UpdateKeyValueRequest{
+		Payload:         "plain-text-replacement",
+		PayloadFromFile: false,
+	}); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(calls))
+	}
+
+	// Create request must have used value_file, not value.
+	createFields := calls[0]
+	if createFields["value_file"] != "-----BEGIN CERTIFICATE-----" {
+		t.Errorf("create: expected value_file field, got: %#v", createFields)
+	}
+	if _, ok := createFields["value"]; ok {
+		t.Errorf("create: must not send both value and value_file, got: %#v", createFields)
+	}
+
+	// Update request must have used value, not value_file.
+	updateFields := calls[1]
+	if updateFields["value"] != "plain-text-replacement" {
+		t.Errorf("update: expected value field, got: %#v", updateFields)
+	}
+	if _, ok := updateFields["value_file"]; ok {
+		t.Errorf("update: must not send both value and value_file, got: %#v", updateFields)
+	}
+}
+
+// TestUpdateKeyValue_SwitchFromPlainValueToFile verifies the reverse: a key
+// originally stored as plain text can be updated with a file payload.
+func TestUpdateKeyValue_SwitchFromPlainValueToFile(t *testing.T) {
+	var calls []map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			calls = append(calls, parseMultipartFields(t, r))
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, `{"status":"created"}`)
+		case http.MethodPatch:
+			calls = append(calls, parseMultipartFields(t, r))
+			w.WriteHeader(http.StatusAccepted)
+			io.WriteString(w, `{"status":"updated"}`)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+
+	// First call: create the key with a plain text value.
+	if err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
+		Key:             "TOKEN",
+		Payload:         "initial-token",
+		PayloadFromFile: false,
+	}); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	// Second call: update with a file payload.
+	if err := c.UpdateKeyValue(context.Background(), "TOKEN", UpdateKeyValueRequest{
+		Payload:         "-----BEGIN PRIVATE KEY-----",
+		PayloadFromFile: true,
+	}); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(calls))
+	}
+
+	createFields := calls[0]
+	if createFields["value"] != "initial-token" {
+		t.Errorf("create: expected value field, got: %#v", createFields)
+	}
+	if _, ok := createFields["value_file"]; ok {
+		t.Errorf("create: must not send both value and value_file, got: %#v", createFields)
+	}
+
+	updateFields := calls[1]
+	if updateFields["value_file"] != "-----BEGIN PRIVATE KEY-----" {
+		t.Errorf("update: expected value_file field, got: %#v", updateFields)
+	}
+	if _, ok := updateFields["value"]; ok {
+		t.Errorf("update: must not send both value and value_file, got: %#v", updateFields)
 	}
 }
 

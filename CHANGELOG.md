@@ -1,3 +1,23 @@
+## v1.11.2 (2026-05-01)
+
+### Bug Fixes
+* run lint with go 1.26 (50ee3f0)
+* run security scan with supported go version (004c1ae)
+* support golangci-lint v2 action (6d926af)
+* improve kh tf command consistency and user experience (c004314)
+* replace generic errors with structured kherrors across all commands (d0520ea)
+* replace generic cobra errors with actionable validation messages on kv commands (27c4c75)
+
+### Maintenance
+* strengthen linting and backend docs (67745c5)
+* apply gofmt to pre-existing unformatted files (3155c1d)
+* normalize kh tf sync flag naming conventions (96c6205)
+* untrack bin/kh binary (already covered by bin/ gitignore) (1eb7f47)
+* disable sarif uploads (c5f34a2)
+* rename Value/ValueFile to Payload/PayloadFromFile in request types (5a6c541)
+
+---
+
 ## v1.11.1 (2026-04-14)
 
 ### Bug Fixes

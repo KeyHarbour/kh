@@ -1,8 +1,9 @@
 package cli
 
 import (
-	"fmt"
 	"os"
+
+	"kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
@@ -15,7 +16,7 @@ func newCompletionCmd(root *cobra.Command) *cobra.Command {
 		ValidArgs: valid,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("completion requires exactly one argument: one of %v", valid)
+				return kherrors.ErrMissingFlag.Newf("completion requires exactly one argument: one of %v", valid)
 			}
 			a := args[0]
 			for _, v := range valid {
@@ -23,7 +24,7 @@ func newCompletionCmd(root *cobra.Command) *cobra.Command {
 					return nil
 				}
 			}
-			return fmt.Errorf("invalid shell %q; accepted values: %v", a, valid)
+			return kherrors.ErrInvalidValue.Newf("invalid shell %q; accepted values: %v", a, valid)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {

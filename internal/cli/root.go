@@ -138,6 +138,21 @@ func Execute() int {
 	return exitcodes.OK
 }
 
+// requireExactArgs wraps cobra.ExactArgs so that wrong-arity errors are
+// classified as validation failures with the correct hint, rather than falling
+// through to the generic "unexpected error" handler.
+func requireExactArgs(n int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) < n {
+			return kherrors.ErrMissingFlag.Newf("usage: %s", cmd.UseLine())
+		}
+		if len(args) > n {
+			return kherrors.ErrInvalidValue.Newf("too many arguments — usage: %s", cmd.UseLine())
+		}
+		return nil
+	}
+}
+
 // classifyError converts any error to a *kherrors.KHError for structured
 // output and exit-code resolution. It handles:
 //   - *kherrors.KHError already in the chain (returned as-is)

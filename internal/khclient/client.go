@@ -116,7 +116,7 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 	backoff := 1 << attempt
 	base := time.Duration(backoff) * wait
 	// Add ±20% jitter to spread retries under load and avoid thundering herd.
-	jitter := time.Duration(rand.Int63n(int64(base/5)*2+1) - int64(base/5))
+	jitter := time.Duration(rand.Int63n(int64(base/5)*2+1) - int64(base/5)) //nolint:gosec // retry jitter; crypto randomness not needed
 	return base + jitter
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"kh/internal/config"
+	"kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,7 @@ func newWhoamiCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			if cfg.Token == "" {
-				return fmt.Errorf("not logged in: set token with kh login --token ... or KH_TOKEN env var")
+				return kherrors.ErrMissingToken.New("not logged in: set token with kh login --token ... or KH_TOKEN env var")
 			}
 			org := cfg.Org
 			if org == "" {

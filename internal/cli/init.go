@@ -1,13 +1,13 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"kh/internal/config"
+	"kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
@@ -16,12 +16,12 @@ import (
 // scaffoldTerraformProject creates a minimal Terraform project scaffold
 // under dir/<module>/<env> following best practices and using an HTTP backend
 // pointing to the KeyHarbour service.
-func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, khProject string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
+func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, _ string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
 	if name == "" {
-		return "", errors.New("name is required")
+		return "", kherrors.ErrMissingFlag.New("name is required")
 	}
 	if env == "" {
-		return "", errors.New("env is required")
+		return "", kherrors.ErrMissingFlag.New("env is required")
 	}
 	if module == "" {
 		module = "infra"
@@ -37,17 +37,8 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, khProj
 		endpoint = strings.TrimRight(endpoint, "/")
 	}
 
-	// Derive a stable state ID; this can be revisited later to match server conventions.
-	// Format: <khProject>:<module>:<env> or fallback to name if khProject empty.
-	base := khProject
-	if base == "" {
-		base = name
-	}
-	stateID := fmt.Sprintf("%s-%s-%s", sanitize(base), sanitize(module), sanitize(env))
-
 	// Target directory layout: <dir>/<module>/<env>
-	root := filepath.Join(dir)
-	target := filepath.Join(root, module, env)
+	target := filepath.Join(dir, module, env)
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return "", err
 	}
@@ -65,10 +56,10 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, khProj
 	switch backendType {
 	case "http":
 		files[filepath.Join(target, "backend.tf")] = terraformBackendTF()
-		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCLLegacy(endpoint, stateID)
+		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCL(endpoint)
 	case "cloud":
 		if tfcOrg == "" {
-			return "", errors.New("--tfc-org (or TF_CLOUD_ORGANIZATION) is required for --backend=cloud")
+			return "", kherrors.ErrMissingFlag.New("--tfc-org (or TF_CLOUD_ORGANIZATION) is required for --backend=cloud")
 		}
 		if tfcWorkspace == "" {
 			// default workspace: name-module-env
@@ -76,12 +67,12 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, khProj
 		}
 		files[filepath.Join(target, "cloud.tf")] = terraformCloudBlock(tfcOrg, tfcWorkspace)
 	default:
-		return "", fmt.Errorf("unsupported backend: %s (use http|cloud)", backendType)
+		return "", kherrors.ErrInvalidValue.Newf("unsupported backend: %s (use http|cloud)", backendType)
 	}
 
 	for path, content := range files {
 		if _, err := os.Stat(path); err == nil && !force {
-			return "", fmt.Errorf("refusing to overwrite existing file without --force: %s", path)
+			return "", kherrors.ErrInvalidValue.Newf("refusing to overwrite existing file without --force: %s", path)
 		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return "", err
@@ -114,16 +105,21 @@ func terraformCloudBlock(org, workspace string) string {
 }`, org, workspace)
 }
 
-// terraformBackendHCLLegacy generates backend.hcl using the legacy /api/v1/states/{stateID} format
-// Used by init project when UUIDs are not available
-func terraformBackendHCLLegacy(endpoint, stateID string) string {
-	return fmt.Sprintf(`address        = "%s/api/v1/states/%s"
-lock_address   = "%s/api/v1/states/%s/lock"
-unlock_address = "%s/api/v1/states/%s/unlock"
+// terraformBackendHCL generates backend.hcl using the V2 workspace-based path.
+// Replace YOUR_WORKSPACE_UUID with the actual workspace UUID after creating the workspace.
+func terraformBackendHCL(endpoint string) string {
+	const placeholder = "YOUR_WORKSPACE_UUID"
+	return fmt.Sprintf(`# Replace %s with your workspace UUID.
+# Run 'kh tf version ls' after creating the workspace to find it.
+address        = "%s/workspaces/%s/state"
+lock_address   = "%s/workspaces/%s/state/lock"
+unlock_address = "%s/workspaces/%s/state/lock"
 lock_method    = "POST"
-unlock_method  = "POST"
+unlock_method  = "DELETE"
+username       = "kh"
+# password is read from TF_HTTP_PASSWORD environment variable
 retry_max      = 2
-`, endpoint, stateID, endpoint, stateID, endpoint, stateID)
+`, placeholder, endpoint, placeholder, endpoint, placeholder, endpoint, placeholder)
 }
 
 func terraformVersionsTF() string {
@@ -194,11 +190,18 @@ This folder was scaffolded by kh to bootstrap a Terraform project with a backend
 
 How to use:
 
-1. Initialize backend (HTTP backend uses backend.hcl):
+1. (HTTP backend) Replace YOUR_WORKSPACE_UUID in backend.hcl with your workspace UUID.
+   Create the workspace first, then run 'kh tf version ls' to find the UUID.
+
+2. Set your API token:
+
+   export TF_HTTP_PASSWORD=<your-kh-token>
+
+3. Initialize backend (HTTP backend uses backend.hcl):
 
    terraform init -backend-config=backend.hcl
 
-2. Optional: set variables (or edit locals in main.tf):
+4. Optional: set variables (or edit locals in main.tf):
 
    terraform plan -var="project=%s" -var="environment=%s" -var="module=%s"
 

@@ -6,13 +6,7 @@ func newTFCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tf",
 		Short: "Terraform state management",
-		Long: `Manage Terraform state stored in KeyHarbour.
-
-Subcommands:
-  state     Inspect and manage states (ls, show, lock, unlock, verify)
-  version   Manage statefile versions for a workspace
-  sync      Migrate state between backends
-  init      Scaffold a Terraform project for KeyHarbour`,
+		Long:  `Manage Terraform state stored in KeyHarbour.`,
 	}
 	cmd.AddCommand(newStateCmd())
 	cmd.AddCommand(newStatefilesCmd())

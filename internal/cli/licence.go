@@ -11,6 +11,7 @@ import (
 
 	"kh/internal/config"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
@@ -70,7 +71,7 @@ func newLicenseListCmd() *cobra.Command {
 			if renewalBefore != "" {
 				beforeDate, err = time.Parse("2006-01-02", renewalBefore)
 				if err != nil {
-					return fmt.Errorf("--renewal-before: expected YYYY-MM-DD, got %q", renewalBefore)
+					return kherrors.ErrInvalidValue.Newf("--renewal-before: expected YYYY-MM-DD, got %q", renewalBefore)
 				}
 			}
 			filtered := items[:0]
@@ -128,7 +129,7 @@ func newLicenseShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show license record details",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -173,7 +174,7 @@ func newLicenseCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a new license record",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -230,7 +231,7 @@ func newLicenseUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Update a license record",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("name") &&
 				!cmd.Flags().Changed("short-name") &&
@@ -241,7 +242,7 @@ func newLicenseUpdateCmd() *cobra.Command {
 				!cmd.Flags().Changed("seats") &&
 				!cmd.Flags().Changed("unit-cost") &&
 				!cmd.Flags().Changed("status") {
-				return fmt.Errorf("at least one flag is required")
+				return kherrors.ErrMissingFlag.New("at least one flag is required")
 			}
 
 			cfg, _ := config.LoadWithEnv()
@@ -291,7 +292,7 @@ func newLicenseDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <uuid>",
 		Short: "Delete a license record",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Delete license %q? This cannot be undone. Pass --force to confirm.\n", args[0])
@@ -335,11 +336,11 @@ Only name, short_name, owner, and vendor are required.
 Examples:
   kh license import licenses.csv
   kh license import licenses.csv --dry-run`,
-		Args: cobra.ExactArgs(1),
+		Args: requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := os.Open(args[0])
 			if err != nil {
-				return fmt.Errorf("open %s: %w", args[0], err)
+				return kherrors.ErrBackendIO.Wrapf(err, "open %s: %s", args[0], err)
 			}
 			defer f.Close()
 
@@ -348,7 +349,7 @@ Examples:
 
 			header, err := r.Read()
 			if err != nil {
-				return fmt.Errorf("read header: %w", err)
+				return kherrors.ErrBackendIO.Wrapf(err, "read header: %s", err)
 			}
 			idx := csvIndex(header)
 
@@ -362,7 +363,7 @@ Examples:
 					break
 				}
 				if err != nil {
-					return fmt.Errorf("line %d: %w", line, err)
+					return kherrors.ErrBackendIO.Wrapf(err, "line %d: %s", line, err)
 				}
 
 				req := khclient.CreateApplicationRequest{
@@ -442,11 +443,11 @@ Examples:
 				return err
 			}
 
-			var w io.Writer = cmd.OutOrStdout()
+			w := cmd.OutOrStdout()
 			if outFile != "" {
 				f, err := os.Create(outFile)
 				if err != nil {
-					return fmt.Errorf("create %s: %w", outFile, err)
+					return kherrors.ErrBackendIO.Wrapf(err, "create %s: %s", outFile, err)
 				}
 				defer f.Close()
 				w = f
@@ -518,7 +519,7 @@ func newLicenseInstanceListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls <application-uuid>",
 		Short: "List instances of an application",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -552,7 +553,7 @@ func newLicenseInstanceShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show instance details",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -593,7 +594,7 @@ func newLicenseInstanceCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <application-uuid> <name>",
 		Short: "Create a new instance under an application",
-		Args:  cobra.ExactArgs(2),
+		Args:  requireExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -637,7 +638,7 @@ func newLicenseInstanceUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Update an instance",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("name") &&
 				!cmd.Flags().Changed("short-name") &&
@@ -646,7 +647,7 @@ func newLicenseInstanceUpdateCmd() *cobra.Command {
 				!cmd.Flags().Changed("seats") &&
 				!cmd.Flags().Changed("unit-cost") &&
 				!cmd.Flags().Changed("status") {
-				return fmt.Errorf("at least one flag is required")
+				return kherrors.ErrMissingFlag.New("at least one flag is required")
 			}
 
 			cfg, _ := config.LoadWithEnv()
@@ -690,7 +691,7 @@ func newLicenseInstanceDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <uuid>",
 		Short: "Delete an instance",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Delete instance %q? This cannot be undone. Pass --force to confirm.\n", args[0])
@@ -732,12 +733,12 @@ Only name and short_name are required.
 Examples:
   kh license instance import <app-uuid> instances.csv
   kh license instance import <app-uuid> instances.csv --dry-run`,
-		Args: cobra.ExactArgs(2),
+		Args: requireExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appUUID := args[0]
 			f, err := os.Open(args[1])
 			if err != nil {
-				return fmt.Errorf("open %s: %w", args[1], err)
+				return kherrors.ErrBackendIO.Wrapf(err, "open %s: %s", args[1], err)
 			}
 			defer f.Close()
 
@@ -746,7 +747,7 @@ Examples:
 
 			header, err := r.Read()
 			if err != nil {
-				return fmt.Errorf("read header: %w", err)
+				return kherrors.ErrBackendIO.Wrapf(err, "read header: %s", err)
 			}
 			idx := csvIndex(header)
 
@@ -760,7 +761,7 @@ Examples:
 					break
 				}
 				if err != nil {
-					return fmt.Errorf("line %d: %w", line, err)
+					return kherrors.ErrBackendIO.Wrapf(err, "line %d: %s", line, err)
 				}
 
 				req := khclient.CreateInstanceRequest{
@@ -831,7 +832,7 @@ func newLicenseLicenseeListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls <instance-uuid>",
 		Short: "List licensees for an instance",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -865,7 +866,7 @@ func newLicenseLicenseeShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show licensee details",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -892,7 +893,7 @@ func newLicenseLicenseeAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <instance-uuid> <member-uuid>",
 		Short: "Add a licensee to an instance",
-		Args:  cobra.ExactArgs(2),
+		Args:  requireExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -914,7 +915,7 @@ func newLicenseLicenseeUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Update a licensee's status",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -938,7 +939,7 @@ func newLicenseLicenseeDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <uuid>",
 		Short: "Remove a licensee",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Remove licensee %q? This cannot be undone. Pass --force to confirm.\n", args[0])
@@ -1018,7 +1019,7 @@ func newLicenseTeamMemberShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show team member details",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -1049,7 +1050,7 @@ func newLicenseTeamMemberAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <uuid>",
 		Short: "Add a team member",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -1071,7 +1072,7 @@ func newLicenseTeamMemberUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Update a team member's manager",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
@@ -1095,7 +1096,7 @@ func newLicenseTeamMemberDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <uuid>",
 		Short: "Remove a team member",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Remove team member %q? This cannot be undone. Pass --force to confirm.\n", args[0])
@@ -1137,11 +1138,11 @@ Only uuid is required; manager_uuid is optional.
 Examples:
   kh license team-member import members.csv
   kh license team-member import members.csv --dry-run`,
-		Args: cobra.ExactArgs(1),
+		Args: requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := os.Open(args[0])
 			if err != nil {
-				return fmt.Errorf("open %s: %w", args[0], err)
+				return kherrors.ErrBackendIO.Wrapf(err, "open %s: %s", args[0], err)
 			}
 			defer f.Close()
 
@@ -1150,7 +1151,7 @@ Examples:
 
 			header, err := r.Read()
 			if err != nil {
-				return fmt.Errorf("read header: %w", err)
+				return kherrors.ErrBackendIO.Wrapf(err, "read header: %s", err)
 			}
 			idx := csvIndex(header)
 
@@ -1164,7 +1165,7 @@ Examples:
 					break
 				}
 				if err != nil {
-					return fmt.Errorf("line %d: %w", line, err)
+					return kherrors.ErrBackendIO.Wrapf(err, "line %d: %s", line, err)
 				}
 
 				uuid := csvField(record, idx, "uuid")
