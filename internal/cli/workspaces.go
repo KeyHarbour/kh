@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"kh/internal/config"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
@@ -45,7 +45,7 @@ All subcommands require --project (or KH_PROJECT).`,
 func (o *workspaceCmdOpts) projectRef(cfg config.Config) (string, error) {
 	ref := projectRefOrEnv(o.project, cfg)
 	if ref == "" {
-		return "", errors.New("--project is required (or set KH_PROJECT)")
+		return "", kherrors.ErrMissingFlag.New("--project is required (or set KH_PROJECT)")
 	}
 	return ref, nil
 }
@@ -93,7 +93,7 @@ func newWorkspacesCreateCmd(opts *workspaceCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a new workspace in a project",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)
@@ -127,10 +127,10 @@ func newWorkspacesUpdateCmd(opts *workspaceCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <uuid>",
 		Short: "Update a workspace name or description",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("name") && !cmd.Flags().Changed("description") {
-				return fmt.Errorf("at least one of --name or --description is required")
+				return kherrors.ErrMissingFlag.New("at least one of --name or --description is required")
 			}
 			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)
@@ -177,7 +177,7 @@ func newWorkspacesDeleteCmd(opts *workspaceCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <uuid>",
 		Short: "Delete a workspace",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Delete workspace %q? This cannot be undone. Pass --force to confirm.\n", args[0])
@@ -214,12 +214,7 @@ func newWorkspacesShowCmd(opts *workspaceCmdOpts) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <uuid>",
 		Short: "Show workspace details",
-		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return fmt.Errorf("workspaces show requires exactly one argument: <uuid>")
-			}
-			return nil
-		},
+		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)

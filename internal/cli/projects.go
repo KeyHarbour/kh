@@ -3,12 +3,12 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"kh/internal/config"
 	"kh/internal/exitcodes"
 	"kh/internal/khclient"
+	"kh/internal/kherrors"
 	"kh/internal/output"
 
 	"github.com/spf13/cobra"
@@ -36,7 +36,7 @@ func newProjectsListCmd() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Friendly guidance since /v1/projects (index) isn't implemented in the API spec
-			msg := "projects listing is not supported by the server API yet. Use 'kh project show <uuid>' or 'kh workspace ls --project <uuid>'."
+			msg := "projects listing is not supported by the server API yet. Use 'kh project show <uuid>' or 'kh workspace ls --project <uuid>'"
 			return exitcodes.With(exitcodes.ValidationError, errors.New(msg))
 		},
 	}
@@ -50,7 +50,7 @@ func newProjectsShowCmd() *cobra.Command {
 		Short: "Show a project's details",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 1 {
-				return fmt.Errorf("projects show accepts at most one argument: <project-uuid>")
+				return kherrors.ErrInvalidValue.New("projects show accepts at most one argument: <project-uuid>")
 			}
 			return nil
 		},
@@ -66,7 +66,7 @@ func newProjectsShowCmd() *cobra.Command {
 			}
 
 			if projectRef == "" {
-				return fmt.Errorf("project uuid is required: provide as argument or set KH_PROJECT")
+				return kherrors.ErrMissingFlag.New("project uuid is required: provide as argument or set KH_PROJECT")
 			}
 
 			client := khclient.New(cfg)

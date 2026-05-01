@@ -54,11 +54,11 @@ type KeyValue struct {
 }
 
 type CreateKeyValueRequest struct {
-	Key       string  `json:"key"`
-	Value     string  `json:"value"`
-	ValueFile bool    `json:"-"`
-	ExpiresAt *string `json:"expires_at,omitempty"`
-	Private   bool    `json:"private,omitempty"`
+	Key             string  `json:"key"`
+	Payload         string  `json:"value"`
+	PayloadFromFile bool    `json:"-"`
+	ExpiresAt       *string `json:"expires_at,omitempty"`
+	Private         bool    `json:"private,omitempty"`
 }
 
 type UpdateWorkspaceRequest struct {
@@ -163,8 +163,8 @@ type UpdateTeamMemberRequest struct {
 }
 
 type UpdateKeyValueRequest struct {
-	Value     string  `json:"value"`
-	ValueFile bool    `json:"-"`
-	ExpiresAt *string `json:"expires_at,omitempty"`
-	Private   *bool   `json:"private,omitempty"`
+	Payload         string  `json:"value"`
+	PayloadFromFile bool    `json:"-"`
+	ExpiresAt       *string `json:"expires_at,omitempty"`
+	Private         *bool   `json:"private,omitempty"`
 }

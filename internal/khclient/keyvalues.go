@@ -74,7 +74,7 @@ func (c *Client) CreateKeyValue(ctx context.Context, workspaceUUID string, req C
 	if workspaceUUID == "" {
 		return fmt.Errorf("workspace uuid is required")
 	}
-	body, err := buildKeyValueMultipartBody(req.Key, req.Value, req.ExpiresAt, &req.Private, req.ValueFile)
+	body, err := buildKeyValueMultipartBody(req.Key, req.Payload, req.ExpiresAt, &req.Private, req.PayloadFromFile)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (c *Client) UpdateKeyValue(ctx context.Context, key string, req UpdateKeyVa
 	if key == "" {
 		return fmt.Errorf("key is required")
 	}
-	body, err := buildKeyValueMultipartBody(key, req.Value, req.ExpiresAt, req.Private, req.ValueFile)
+	body, err := buildKeyValueMultipartBody(key, req.Payload, req.ExpiresAt, req.Private, req.PayloadFromFile)
 	if err != nil {
 		return err
 	}

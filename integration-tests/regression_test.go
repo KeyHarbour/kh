@@ -4,10 +4,12 @@ package integrationtests
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRegression compares the live system against a stored snapshot produced
@@ -345,6 +347,84 @@ func TestRegression(t *testing.T) {
 						wsUUID, len(liveFiles), len(snapFiles))
 				}
 			})
+		}
+	})
+
+	t.Run("KVValueFileRoundTripAppKeyHarbour", func(t *testing.T) {
+		endpoint := os.Getenv("KH_ENDPOINT")
+		if !strings.Contains(endpoint, "app.keyharbour.ca") {
+			t.Skipf("KH_ENDPOINT is %q; this regression runs only against app.keyharbour.ca", endpoint)
+		}
+		requireEnv(t, "KH_WORKSPACE")
+
+		workspace := os.Getenv("KH_WORKSPACE")
+		env := os.Getenv("KH_ENV")
+		key := fmt.Sprintf("KH_REGRESSION_FILE_%d", time.Now().UnixMilli())
+
+		t.Cleanup(func() {
+			if out, err := runCmd(t, kh,
+				"kv", "delete", key,
+				"--project", project,
+				"--workspace", workspace,
+				"--force",
+			); err != nil {
+				t.Logf("cleanup delete failed (may already be deleted): %v\n%s", err, out)
+			}
+		})
+
+		tmp := t.TempDir()
+		setFile := filepath.Join(tmp, "set.txt")
+		updateFile := filepath.Join(tmp, "update.txt")
+		getFile := filepath.Join(tmp, "get.txt")
+
+		setValue := []byte("value-from-file-regression-v1\n")
+		updateValue := []byte("value-from-file-regression-v2\n")
+		if err := os.WriteFile(setFile, setValue, 0o600); err != nil {
+			t.Fatalf("write set file: %v", err)
+		}
+		if err := os.WriteFile(updateFile, updateValue, 0o600); err != nil {
+			t.Fatalf("write update file: %v", err)
+		}
+
+		setArgs := []string{"kv", "set", key, "--value-file", setFile, "--project", project, "--workspace", workspace}
+		if env != "" {
+			setArgs = append(setArgs, "--env", env)
+		}
+		runOK(t, kh, setArgs...)
+
+		runOK(t, kh,
+			"kv", "get", key,
+			"--project", project,
+			"--workspace", workspace,
+			"--output-file", getFile,
+		)
+		gotSetValue, err := os.ReadFile(getFile)
+		if err != nil {
+			t.Fatalf("read get output after set: %v", err)
+		}
+		if string(gotSetValue) != string(setValue) {
+			t.Fatalf("value mismatch after set via --value-file: got=%q want=%q", string(gotSetValue), string(setValue))
+		}
+
+		runOK(t, kh,
+			"kv", "update", key,
+			"--value-file", updateFile,
+			"--project", project,
+			"--workspace", workspace,
+		)
+
+		runOK(t, kh,
+			"kv", "get", key,
+			"--project", project,
+			"--workspace", workspace,
+			"--output-file", getFile,
+		)
+		gotUpdatedValue, err := os.ReadFile(getFile)
+		if err != nil {
+			t.Fatalf("read get output after update: %v", err)
+		}
+		if string(gotUpdatedValue) != string(updateValue) {
+			t.Fatalf("value mismatch after update via --value-file: got=%q want=%q", string(gotUpdatedValue), string(updateValue))
 		}
 	})
 }

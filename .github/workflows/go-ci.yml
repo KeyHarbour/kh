@@ -85,53 +85,34 @@ jobs:
           path: bin/kh
 
   # ── Lint ──────────────────────────────────────────────────────────────────
-  # Results appear as PR review annotations and in Security → Code Scanning.
-  # Requires security-events: write (Code Scanning is free for public repos;
-  # private repos need GitHub Advanced Security).
+  # Runs golangci-lint using .golangci.yml. Results appear as job annotations
+  # on PRs and as a summary in the Actions UI.
   lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
 
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.11.4
           args: --timeout=5m
-          install-mode: goinstall
-
-      # Second pass outputs SARIF for the Security tab.
-      # golangci-lint is in PATH after the action above.
-      - name: golangci-lint SARIF
-        if: always()
-        run: |
-          golangci-lint run --out-format sarif --timeout=5m > golangci.sarif || true
-          test -f golangci.sarif || printf '{"version":"2.1.0","runs":[]}' > golangci.sarif
-
-      - name: Upload lint SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: golangci.sarif
-          category: golangci-lint
 
   # ── Security ──────────────────────────────────────────────────────────────
   # govulncheck: fails the job if known CVEs are found in the dependency graph.
-  # gosec:       static analysis for Go security issues, uploaded to Code Scanning.
+  # gosec:       advisory static analysis — findings appear in the job summary.
   security:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
 
     steps:
       - uses: actions/checkout@v5
@@ -149,12 +130,19 @@ jobs:
       - name: gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -fmt sarif -out gosec.sarif ./... || true
-          test -f gosec.sarif || printf '{"version":"2.1.0","runs":[]}' > gosec.sarif
-
-      - name: Upload gosec SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: gosec.sarif
-          category: gosec
+          set +e
+          gosec -fmt=text -out=/tmp/gosec.txt ./... 2>&1
+          GOSEC_EXIT=$?
+          set -e
+          {
+            echo "## Security Scan (gosec)"
+            if [ "$GOSEC_EXIT" -eq 0 ]; then
+              echo ":white_check_mark: No issues found"
+            else
+              echo ":warning: Advisory findings — review before shipping"
+              echo ""
+              echo '```'
+              cat /tmp/gosec.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

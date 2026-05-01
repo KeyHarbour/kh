@@ -27,6 +27,7 @@ func TestDecodeJSON_NonJSONTruncates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("do returned error: %v", err)
 	}
+	defer resp.Body.Close()
 	var dest struct{}
 	err = decodeJSON(resp, &dest)
 	if err == nil {

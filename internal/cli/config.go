@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"kh/internal/config"
+	"kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
@@ -33,7 +34,7 @@ func newConfigGetCmd() *cobra.Command {
 		Short: "Get a config value",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return fmt.Errorf("config get requires 1 argument: <key> (valid keys: endpoint, token, org, project, concurrency)")
+				return kherrors.ErrMissingFlag.New("config get requires 1 argument: <key> (valid keys: endpoint, token, org, project, concurrency)")
 			}
 			return nil
 		},
@@ -56,7 +57,7 @@ func newConfigSetCmd() *cobra.Command {
 		Short: "Set a config value",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 2 {
-				return fmt.Errorf("config set requires 2 arguments: <key> <value> (valid keys: endpoint, token, org, project, concurrency)")
+				return kherrors.ErrMissingFlag.New("config set requires 2 arguments: <key> <value> (valid keys: endpoint, token, org, project, concurrency)")
 			}
 			return nil
 		},

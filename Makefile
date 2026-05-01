@@ -1,4 +1,4 @@
-.PHONY: tidy build run test test-coverage coverage-report vet fmt clean install uninstall snapshot regression diagnostics release
+.PHONY: tidy build run test test-coverage coverage-report vet fmt lint security clean install uninstall snapshot regression diagnostics release
 
 BINARY := bin/kh
 PREFIX ?= /usr/local
@@ -11,6 +11,13 @@ COVERAGE_DIR := coverage
 
  tidy:
 	go mod tidy
+
+lint:
+	golangci-lint run ./...
+
+security:
+	govulncheck ./...
+	gosec -no-fail ./...
 
 build:
 	mkdir -p bin

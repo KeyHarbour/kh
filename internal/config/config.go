@@ -157,11 +157,8 @@ func FromEnvOrInt(cfg Config, key string, def int) int {
 			return n
 		}
 	}
-	switch key {
-	case "KH_CONCURRENCY":
-		if cfg.Concurrency > 0 {
-			return cfg.Concurrency
-		}
+	if key == "KH_CONCURRENCY" && cfg.Concurrency > 0 {
+		return cfg.Concurrency
 	}
 	return def
 }

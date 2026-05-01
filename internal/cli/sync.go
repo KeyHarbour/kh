@@ -68,31 +68,31 @@ func newSyncCmd() *cobra.Command {
 		Long: `Sync reads state from a source backend and writes it to a destination backend.
 
 Sources  (--from): local, http, tfc, keyharbour
-Destinations (--to): keyharbour, file, http, tfc  (default: keyharbour)
+Destinations (--to): keyharbour, local, http, tfc  (default: keyharbour)
 
 Examples:
   # From local file to KeyHarbour
-  kh tf sync --from=local --path=./terraform.tfstate --project=<uuid> --workspace=prod
+  kh tf sync --from=local --local-path=./terraform.tfstate --kh-project=<uuid> --kh-workspace=prod
 
   # From Terraform Cloud to KeyHarbour (auto-create workspace)
-  kh tf sync --from=tfc --tfc-org=my-org --tfc-workspace=ws-name --project=<uuid> --create-workspace
+  kh tf sync --from=tfc --tfc-src-org=my-org --tfc-src-workspace=ws-name --kh-project=<uuid> --kh-create-workspace
 
   # From KeyHarbour to local file
-  kh tf sync --from=keyharbour --src-project=<uuid> --src-workspace=prod --to=file --out=./backup.tfstate
+  kh tf sync --from=keyharbour --kh-src-project=<uuid> --kh-src-workspace=prod --to=local --local-out=./backup.tfstate
 
   # From KeyHarbour to Terraform Cloud
-  kh tf sync --from=keyharbour --src-project=<uuid> --src-workspace=ws1 \
-    --to=tfc --dest-tfc-org=my-org --dest-tfc-workspace=ws-name
+  kh tf sync --from=keyharbour --kh-src-project=<uuid> --kh-src-workspace=ws1 \
+    --to=tfc --tfc-dest-org=my-org --tfc-dest-workspace=ws-name
 
   # From HTTP backend to local file
-  kh tf sync --from=http --url=https://old-backend.com/state --to=file --out=./imported.tfstate
+  kh tf sync --from=http --http-url=https://old-backend.com/state --to=local --local-out=./imported.tfstate
 
   # Between two KeyHarbour workspaces
-  kh tf sync --from=keyharbour --src-project=<proj1> --src-workspace=ws1 \
-    --to=keyharbour --project=<proj2> --workspace=ws2
+  kh tf sync --from=keyharbour --kh-src-project=<proj1> --kh-src-workspace=ws1 \
+    --to=keyharbour --kh-project=<proj2> --kh-workspace=ws2
 
   # Dry-run: preview what would be synced
-  kh tf sync --from=tfc --tfc-org=my-org --tfc-workspace=ws --project=<uuid> --dry-run
+  kh tf sync --from=tfc --tfc-src-org=my-org --tfc-src-workspace=ws --kh-project=<uuid> --dry-run
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.LoadWithEnv()
@@ -124,7 +124,7 @@ Examples:
 			if workspacePattern != "" {
 				wsRE, err = regexp.Compile(workspacePattern)
 				if err != nil {
-					return kherrors.ErrInvalidValue.Wrapf(err, "invalid --workspace-pattern: %s", err)
+					return kherrors.ErrInvalidValue.Wrapf(err, "invalid --local-workspace-pattern: %s", err)
 				}
 			}
 
@@ -136,12 +136,12 @@ Examples:
 			switch from {
 			case "local":
 				if localPath == "" {
-					return kherrors.ErrMissingFlag.New("--path is required for --from=local")
+					return kherrors.ErrMissingFlag.New("--local-path is required for --from=local")
 				}
 				r = backend.NewLocalReader(localPath, wsRE)
 			case "http":
 				if httpURL == "" {
-					return kherrors.ErrMissingFlag.New("--url is required for --from=http")
+					return kherrors.ErrMissingFlag.New("--http-url is required for --from=http")
 				}
 				r = backend.NewHTTPReader(httpURL)
 			case "tfc":
@@ -154,14 +154,12 @@ Examples:
 				if tfcToken == "" {
 					if v := os.Getenv("TF_API_TOKEN"); v != "" {
 						tfcToken = v
-					} else if v := os.Getenv("TFC_TOKEN"); v != "" {
-						tfcToken = v
 					} else if v := os.Getenv("TF_TOKEN_app_terraform_io"); v != "" {
 						tfcToken = v
 					}
 				}
 				if tfcOrg == "" || tfcWorkspace == "" || tfcToken == "" {
-					return kherrors.ErrMissingFlag.New("--tfc-org, --tfc-workspace and a token (TF_API_TOKEN/TFC_TOKEN) are required for --from=tfc")
+					return kherrors.ErrMissingFlag.New("--tfc-src-org, --tfc-src-workspace and a token (TF_API_TOKEN/TF_TOKEN_app_terraform_io) are required for --from=tfc")
 				}
 				r = backend.NewTFCReader(tfcHost, tfcOrg, tfcWorkspace, tfcToken)
 			case "keyharbour":
@@ -183,7 +181,7 @@ Examples:
 				}
 				projectRef := projectRefOrEnv(project, cfg)
 				if projectRef == "" {
-					return kherrors.ErrMissingFlag.New("--project is required for --to=keyharbour")
+					return kherrors.ErrMissingFlag.New("--kh-project is required for --to=keyharbour")
 				}
 				proj, err := resolveProjectRef(ctx, client, projectRef)
 				if err != nil {
@@ -191,14 +189,14 @@ Examples:
 				}
 				destProj = &proj
 				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspaceRefOrEnv(workspace, cfg), createWorkspace)
-			case "file":
+			case "local":
 				if outPath == "" {
-					return kherrors.ErrMissingFlag.New("--out is required for --to=file")
+					return kherrors.ErrMissingFlag.New("--local-out is required for --to=local")
 				}
 				w = &backend.LocalWriter{}
 			case "http":
 				if destHTTPURL == "" {
-					return kherrors.ErrMissingFlag.New("--dest-url is required for --to=http")
+					return kherrors.ErrMissingFlag.New("--http-dest-url is required for --to=http")
 				}
 				headers := map[string]string{}
 				if idempotencyKey != "" {
@@ -217,8 +215,6 @@ Examples:
 				if destTFCToken == "" {
 					if v := os.Getenv("TF_API_TOKEN"); v != "" {
 						destTFCToken = v
-					} else if v := os.Getenv("TFC_TOKEN"); v != "" {
-						destTFCToken = v
 					} else if v := os.Getenv("TF_TOKEN_app_terraform_io"); v != "" {
 						destTFCToken = v
 					}
@@ -227,11 +223,11 @@ Examples:
 					destTFCHost = "https://app.terraform.io"
 				}
 				if destTFCOrg == "" || destTFCWorkspace == "" || destTFCToken == "" {
-					return kherrors.ErrMissingFlag.New("--dest-tfc-org, --dest-tfc-workspace and a token are required for --to=tfc")
+					return kherrors.ErrMissingFlag.New("--tfc-dest-org, --tfc-dest-workspace and a token are required for --to=tfc")
 				}
 				w = backend.NewTFCWriter(destTFCHost, destTFCOrg, destTFCWorkspace, destTFCToken)
 			default:
-				return kherrors.ErrInvalidValue.Newf("unsupported --to: %s (supported: keyharbour,file,http,tfc)", to)
+				return kherrors.ErrInvalidValue.Newf("unsupported --to: %s (supported: keyharbour,local,http,tfc)", to)
 			}
 
 			// List objects from source
@@ -303,7 +299,8 @@ Examples:
 
 				// Determine write key based on destination
 				writeKey := obj.Key
-				if to == "keyharbour" {
+				switch to {
+				case "keyharbour":
 					// Use workspace name for KeyHarbour
 					targetWorkspaceName := workspace
 					if targetWorkspaceName == "" {
@@ -315,7 +312,7 @@ Examples:
 					}
 					targetWorkspaceName = validateAndSanitizeWorkspaceName(targetWorkspaceName, cmd.ErrOrStderr())
 					writeKey = targetWorkspaceName
-				} else if to == "file" {
+				case "local":
 					// Use template substitution for file output.
 					// filepath.Base strips any directory separators from backend-supplied
 					// values so a malicious workspace name like "../../etc" cannot write
@@ -436,28 +433,28 @@ Examples:
 
 	// Source flags
 	cmd.Flags().StringVar(&from, "from", "", "Source backend: local|http|tfc|keyharbour")
-	cmd.Flags().StringVar(&localPath, "path", "", "Local file or directory for --from=local")
-	cmd.Flags().StringVar(&httpURL, "url", "", "Source URL for --from=http")
-	cmd.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization for source")
-	cmd.Flags().StringVar(&tfcWorkspace, "tfc-workspace", "", "Terraform Cloud workspace for source")
-	cmd.Flags().StringVar(&tfcHost, "tfc-host", "https://app.terraform.io", "Terraform Cloud host URL for source")
-	cmd.Flags().StringVar(&tfcToken, "tfc-token", "", "Terraform Cloud API token for source")
-	cmd.Flags().StringVar(&srcProject, "src-project", "", "Source KeyHarbour project (for --from=keyharbour)")
-	cmd.Flags().StringVar(&srcWorkspace, "src-workspace", "", "Source KeyHarbour workspace (for --from=keyharbour)")
-	cmd.Flags().StringVar(&stateID, "state-id", "", "Specific state ID (for --from=keyharbour)")
+	cmd.Flags().StringVar(&localPath, "local-path", "", "Local file or directory for --from=local")
+	cmd.Flags().StringVar(&httpURL, "http-url", "", "Source URL for --from=http")
+	cmd.Flags().StringVar(&tfcOrg, "tfc-src-org", "", "Terraform Cloud organization for source (or TF_CLOUD_ORGANIZATION)")
+	cmd.Flags().StringVar(&tfcWorkspace, "tfc-src-workspace", "", "Terraform Cloud workspace for source (or TF_WORKSPACE)")
+	cmd.Flags().StringVar(&tfcHost, "tfc-src-host", "https://app.terraform.io", "Terraform Cloud host URL for source")
+	cmd.Flags().StringVar(&tfcToken, "tfc-src-token", "", "Terraform Cloud API token for source (or TF_API_TOKEN/TF_TOKEN_app_terraform_io)")
+	cmd.Flags().StringVar(&srcProject, "kh-src-project", "", "Source KeyHarbour project (for --from=keyharbour)")
+	cmd.Flags().StringVar(&srcWorkspace, "kh-src-workspace", "", "Source KeyHarbour workspace (for --from=keyharbour)")
+	cmd.Flags().StringVar(&stateID, "kh-src-state-id", "", "Specific state ID (for --from=keyharbour)")
+	cmd.Flags().StringVar(&env, "kh-src-env", "", "Filter statefiles by environment name (for --from=keyharbour)")
 
 	// Destination flags
-	cmd.Flags().StringVar(&to, "to", "", "Destination backend: keyharbour|file|http|tfc (default: keyharbour)")
-	cmd.Flags().StringVar(&project, "project", "", "Target KeyHarbour project (for --to=keyharbour) (or KH_PROJECT)")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Target KeyHarbour workspace (for --to=keyharbour) (or KH_WORKSPACE)")
-	cmd.Flags().StringVar(&env, "env", "", "Filter statefiles by environment name (for --from=keyharbour)")
-	cmd.Flags().BoolVar(&createWorkspace, "create-workspace", false, "Create workspace if it does not exist (for --to=keyharbour)")
-	cmd.Flags().StringVar(&outPath, "out", "", "Output path for --to=file (supports {workspace} and {key} templates)")
-	cmd.Flags().StringVar(&destHTTPURL, "dest-url", "", "Destination URL for --to=http")
-	cmd.Flags().StringVar(&destTFCOrg, "dest-tfc-org", "", "Terraform Cloud organization for destination")
-	cmd.Flags().StringVar(&destTFCWorkspace, "dest-tfc-workspace", "", "Terraform Cloud workspace for destination")
-	cmd.Flags().StringVar(&destTFCHost, "dest-tfc-host", "https://app.terraform.io", "Terraform Cloud host URL for destination")
-	cmd.Flags().StringVar(&destTFCToken, "dest-tfc-token", "", "Terraform Cloud API token for destination")
+	cmd.Flags().StringVar(&to, "to", "", "Destination backend: keyharbour|local|http|tfc (default: keyharbour)")
+	cmd.Flags().StringVar(&project, "kh-project", "", "Target KeyHarbour project (for --to=keyharbour) (or KH_PROJECT)")
+	cmd.Flags().StringVar(&workspace, "kh-workspace", "", "Target KeyHarbour workspace (for --to=keyharbour) (or KH_WORKSPACE)")
+	cmd.Flags().BoolVar(&createWorkspace, "kh-create-workspace", false, "Create workspace if it does not exist (for --to=keyharbour)")
+	cmd.Flags().StringVar(&outPath, "local-out", "", "Output path for --to=local (supports {workspace} and {key} templates)")
+	cmd.Flags().StringVar(&destHTTPURL, "http-dest-url", "", "Destination URL for --to=http")
+	cmd.Flags().StringVar(&destTFCOrg, "tfc-dest-org", "", "Terraform Cloud organization for destination (or TF_CLOUD_ORGANIZATION)")
+	cmd.Flags().StringVar(&destTFCWorkspace, "tfc-dest-workspace", "", "Terraform Cloud workspace for destination (or TF_WORKSPACE)")
+	cmd.Flags().StringVar(&destTFCHost, "tfc-dest-host", "https://app.terraform.io", "Terraform Cloud host URL for destination")
+	cmd.Flags().StringVar(&destTFCToken, "tfc-dest-token", "", "Terraform Cloud API token for destination (or TF_API_TOKEN/TF_TOKEN_app_terraform_io)")
 
 	// Operation flags
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without writing")
@@ -465,10 +462,10 @@ Examples:
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing files/states")
 	cmd.Flags().BoolVar(&lock, "lock", false, "Acquire advisory lock during sync (for --from=keyharbour)")
 	cmd.Flags().BoolVar(&verifyAfterUpload, "verify-after-upload", true, "Verify upload for HTTP destinations")
-	cmd.Flags().StringVar(&workspacePattern, "workspace-pattern", "", "Workspace regex filter (for --from=local)")
+	cmd.Flags().StringVar(&workspacePattern, "local-workspace-pattern", "", "Workspace regex filter (for --from=local)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "Parallelism for operations (defaults from KH_CONCURRENCY)")
-	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Idempotency-Key header (for --to=http)")
-	cmd.Flags().BoolVar(&genBackend, "gen-backend", false, "Write kh_backend.tf.sample after a successful sync to keyharbour")
+	cmd.Flags().StringVar(&idempotencyKey, "http-idempotency-key", "", "Idempotency-Key header (for --to=http)")
+	cmd.Flags().BoolVar(&genBackend, "kh-gen-backend", false, "Write kh_backend.tf.sample after a successful sync to keyharbour")
 
 	return cmd
 }

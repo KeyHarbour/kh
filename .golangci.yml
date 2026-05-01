@@ -1,40 +1,69 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
-  # Start from the default set (errcheck, govet, ineffassign, staticcheck, unused)
-  # and add targeted extras.
+  # Explicit list — no implicit defaults, so the enabled set is always visible.
+  default: none
   enable:
+    - bodyclose      # HTTP response body must be closed
+    - errcheck       # unchecked errors
+    - gocritic       # opinionated checks on style, performance, and correctness
+    - govet          # go vet checks
+    - ineffassign    # dead assignments
     - misspell       # typos in comments and strings
     - nilerr         # return nil instead of err
+    - nolintlint     # //nolint directives must name the specific linter
+    - revive         # error-strings, shadowing, unused params, and more
+    - staticcheck    # comprehensive static analysis (SA, S, ST, QF checks)
     - unconvert      # unnecessary type conversions
     - unparam        # function parameters that are always the same value
     - whitespace     # unnecessary blank lines at the start/end of blocks
 
-linters-settings:
-  errcheck:
-    # fmt.Fprintf / fmt.Fprintln errors are non-actionable in CLI output paths.
-    exclude-functions:
-      - fmt.Fprintf
-      - fmt.Fprintln
-      - (io.Writer).Write
+  settings:
+    errcheck:
+      # x.(T) without ok is a panic risk — require the two-value form.
+      check-type-assertions: true
+      # These return values are non-actionable or no-ops in standard use.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Writer).Write
+        - (io.Closer).Close      # covers resp.Body.Close in defer
+        - (io.ReadCloser).Close
+        - (*os.File).Close       # read-only deferred closes; write-path callers should check
+    staticcheck:
+      checks:
+        - all
+        - "-SA1019"   # deprecated — suppress until we control upgrade cadence
+        - "-ST1000"   # package-level comment required — pedantic for a CLI binary
+        - "-ST1020"   # exported func comment format — pedantic for a CLI binary
+    revive:
+      rules:
+        # GoDoc on every exported symbol is too pedantic for a CLI binary
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    nolintlint:
+      # //nolint must name the linter being suppressed (e.g. //nolint:errcheck)
+      require-specific: true
 
-  staticcheck:
-    checks:
-      - "all"
-      - "-SA1019"   # deprecated — suppress until we control upgrade cadence
+  exclusions:
+    rules:
+      # Test files: relax errcheck and unparam.
+      - path: "_test\\.go$"
+        linters:
+          - errcheck
+          - unparam
+      # Integration test harness uses intentional global state.
+      - path: "integration-tests/"
+        linters:
+          - errcheck
+          - unparam
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    # Test files: relax errcheck and unparam.
-    - path: "_test\\.go$"
-      linters:
-        - errcheck
-        - unparam
-    # Integration test harness uses intentional global state.
-    - path: "integration-tests/"
-      linters:
-        - errcheck
-        - unparam
