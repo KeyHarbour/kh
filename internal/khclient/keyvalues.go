@@ -74,7 +74,7 @@ func (c *Client) CreateKeyValue(ctx context.Context, workspaceUUID string, req C
 	if workspaceUUID == "" {
 		return fmt.Errorf("workspace uuid is required")
 	}
-	body, err := buildKeyValueMultipartBody(req.Key, req.Payload, req.ExpiresAt, &req.Private, req.PayloadFromFile)
+	body, err := buildKeyValueMultipartBody(req.Key, req.Payload, req.ExpiresAt, &req.Private, &req.OneTimeOnly, req.PayloadFromFile)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (c *Client) UpdateKeyValue(ctx context.Context, key string, req UpdateKeyVa
 	if key == "" {
 		return fmt.Errorf("key is required")
 	}
-	body, err := buildKeyValueMultipartBody(key, req.Payload, req.ExpiresAt, req.Private, req.PayloadFromFile)
+	body, err := buildKeyValueMultipartBody(key, req.Payload, req.ExpiresAt, req.Private, req.OneTimeOnly, req.PayloadFromFile)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (c *Client) UpdateKeyValue(ctx context.Context, key string, req UpdateKeyVa
 	return expectStatus("update keyvalue", resp, http.StatusAccepted)
 }
 
-func buildKeyValueMultipartBody(key, value string, expiresAt *string, private *bool, valueFromFile bool) (requestBody, error) {
+func buildKeyValueMultipartBody(key, value string, expiresAt *string, private *bool, oneTimeOnly *bool, valueFromFile bool) (requestBody, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
@@ -136,6 +136,11 @@ func buildKeyValueMultipartBody(key, value string, expiresAt *string, private *b
 	}
 	if private != nil {
 		if err := w.WriteField("private", strconv.FormatBool(*private)); err != nil {
+			return requestBody{}, err
+		}
+	}
+	if oneTimeOnly != nil {
+		if err := w.WriteField("one_time_only", strconv.FormatBool(*oneTimeOnly)); err != nil {
 			return requestBody{}, err
 		}
 	}

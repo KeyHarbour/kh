@@ -1,3 +1,13 @@
+## v1.12.1 (2026-05-26)
+
+### Features
+* add --one-time-only flag to kv set and kv update (bf00cc6)
+
+### Maintenance
+* relicense to AGPL-3.0 (234dcc3)
+
+---
+
 ## v1.11.2 (2026-05-01)
 
 ### Bug Fixes

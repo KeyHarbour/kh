@@ -50,6 +50,7 @@ type KeyValue struct {
 	RawValue    []byte  `json:"-"`
 	ExpiresAt   *string `json:"expires_at"`
 	Private     bool    `json:"private"`
+	OneTimeOnly bool    `json:"one_time_only,omitempty"`
 	Environment string  `json:"environment,omitempty"`
 }
 
@@ -59,6 +60,7 @@ type CreateKeyValueRequest struct {
 	PayloadFromFile bool    `json:"-"`
 	ExpiresAt       *string `json:"expires_at,omitempty"`
 	Private         bool    `json:"private,omitempty"`
+	OneTimeOnly     bool    `json:"one_time_only,omitempty"`
 }
 
 type UpdateWorkspaceRequest struct {
@@ -167,4 +169,5 @@ type UpdateKeyValueRequest struct {
 	PayloadFromFile bool    `json:"-"`
 	ExpiresAt       *string `json:"expires_at,omitempty"`
 	Private         *bool   `json:"private,omitempty"`
+	OneTimeOnly     *bool   `json:"one_time_only,omitempty"`
 }

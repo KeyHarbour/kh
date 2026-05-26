@@ -37,7 +37,7 @@ func TestRegression(t *testing.T) {
 		if err != nil {
 			t.Skipf("no whoami.txt in snapshot: %v", err)
 		}
-		live := runOK(t, kh, "whoami")
+		live := runOK(t, kh, "auth", "whoami")
 		snapOrg := extractLine(string(snap), "org:")
 		liveOrg := extractLine(string(live), "org:")
 		if snapOrg != liveOrg {
@@ -48,7 +48,7 @@ func TestRegression(t *testing.T) {
 	t.Run("StateListNoDeletions", func(t *testing.T) {
 		snapStates := loadJSON[[]map[string]any](t, filepath.Join(snapDir, "states.json"))
 
-		liveOut := runOK(t, kh, "state", "ls", "-o", "json")
+		liveOut := runOK(t, kh, "tf", "state", "ls", "-o", "json")
 		var liveStates []map[string]any
 		if err := json.Unmarshal(liveOut, &liveStates); err != nil {
 			t.Fatalf("live state ls returned invalid JSON: %v\noutput: %s", err, liveOut)
@@ -80,7 +80,7 @@ func TestRegression(t *testing.T) {
 			stateID := strings.TrimSuffix(e.Name(), ".json")
 			t.Run(stateID, func(t *testing.T) {
 				snapHash := sha256File(t, filepath.Join(statesDir, e.Name()))
-				liveOut := runOK(t, kh, "state", "show", stateID, "--raw")
+				liveOut := runOK(t, kh, "tf", "state", "show", stateID)
 				liveHash := sha256Hex(liveOut)
 				if snapHash != liveHash {
 					t.Errorf("content changed: snapshot=%s live=%s", snapHash, liveHash)
@@ -96,7 +96,7 @@ func TestRegression(t *testing.T) {
 		}
 		snapWorkspaces := loadJSON[[]map[string]any](t, snapPath)
 
-		liveOut := runOK(t, kh, "workspaces", "ls", "--project", project, "-o", "json")
+		liveOut := runOK(t, kh, "workspace", "ls", "--project", project, "-o", "json")
 		var liveWorkspaces []map[string]any
 		if err := json.Unmarshal(liveOut, &liveWorkspaces); err != nil {
 			t.Fatalf("live workspaces ls returned invalid JSON: %v\noutput: %s", err, liveOut)
@@ -154,7 +154,7 @@ func TestRegression(t *testing.T) {
 		}
 		snap := loadJSON[map[string]any](t, snapPath)
 
-		liveOut := runOK(t, kh, "projects", "show", project)
+		liveOut := runOK(t, kh, "project", "show", project)
 		var live map[string]any
 		if err := json.Unmarshal(liveOut, &live); err != nil {
 			t.Fatalf("projects show returned invalid JSON: %v\noutput: %s", err, liveOut)
@@ -192,7 +192,7 @@ func TestRegression(t *testing.T) {
 					t.Skip("no workspace key in snapshot file")
 				}
 
-				liveOut := runOK(t, kh, "workspaces", "show", wsUUID, "--project", project)
+				liveOut := runOK(t, kh, "workspace", "show", wsUUID, "--project", project)
 				var livePayload map[string]any
 				if err := json.Unmarshal(liveOut, &livePayload); err != nil {
 					t.Fatalf("workspaces show returned invalid JSON: %v\noutput: %s", err, liveOut)
@@ -329,7 +329,7 @@ func TestRegression(t *testing.T) {
 			t.Run(wsUUID, func(t *testing.T) {
 				snapFiles := loadJSON[[]map[string]any](t, filepath.Join(sfSnapDir, e.Name()))
 
-				liveOut := runOK(t, kh, "statefiles", "ls",
+				liveOut := runOK(t, kh, "tf", "version", "ls",
 					"--project", project,
 					"--workspace", wsUUID,
 					"-o", "json",
