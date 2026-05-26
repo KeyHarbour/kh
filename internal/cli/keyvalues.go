@@ -172,7 +172,7 @@ Examples:
 				return printer.JSON(items)
 			}
 
-			headers := []string{"KEY", "VALUE", "PRIVATE", "ENVIRONMENT", "EXPIRES AT"}
+			headers := []string{"KEY", "VALUE", "PRIVATE", "ONE TIME ONLY", "ENVIRONMENT", "EXPIRES AT"}
 			rows := make([][]string, 0, len(items))
 			for _, kv := range items {
 				exp := "-"
@@ -193,7 +193,7 @@ Examples:
 				case kv.Private:
 					val = "***"
 				}
-				rows = append(rows, []string{kv.Key, val, fmt.Sprintf("%v", kv.Private), orDash(kv.Environment), exp})
+				rows = append(rows, []string{kv.Key, val, fmt.Sprintf("%v", kv.Private), fmt.Sprintf("%v", kv.OneTimeOnly), orDash(kv.Environment), exp})
 			}
 			return printer.Table(headers, rows)
 		},
@@ -346,8 +346,8 @@ Examples:
 			if kv.ExpiresAt != nil {
 				exp = *kv.ExpiresAt
 			}
-			headers := []string{"KEY", "VALUE", "PRIVATE", "ENVIRONMENT", "EXPIRES AT"}
-			return printer.Table(headers, [][]string{{kv.Key, val, fmt.Sprintf("%v", kv.Private), orDash(kv.Environment), exp}})
+			headers := []string{"KEY", "VALUE", "PRIVATE", "ONE TIME ONLY", "ENVIRONMENT", "EXPIRES AT"}
+			return printer.Table(headers, [][]string{{kv.Key, val, fmt.Sprintf("%v", kv.Private), fmt.Sprintf("%v", kv.OneTimeOnly), orDash(kv.Environment), exp}})
 		},
 	}
 	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
@@ -359,6 +359,7 @@ Examples:
 
 func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 	var private bool
+	var oneTimeOnly bool
 	var expiresAt string
 	var expiresIn string
 	var valueFile string
@@ -377,7 +378,8 @@ Examples:
   kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
   kh kv set TEMP_KEY value --workspace <uuid> --expires-in 30d
   kh kv set TEMP_KEY value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
-  kh kv set CERT --value-file ./cert.pem --workspace <uuid>`,
+  kh kv set CERT --value-file ./cert.pem --workspace <uuid>
+  kh kv set ONE_SHOT secret --workspace <uuid> --one-time-only`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return kherrors.ErrMissingFlag.New("<key> argument is required: kh kv set <key> <value> [flags]")
@@ -442,6 +444,7 @@ Examples:
 				Payload:         value,
 				PayloadFromFile: hasValueFile,
 				Private:         private,
+				OneTimeOnly:     oneTimeOnly,
 			}
 			if expiresAt != "" {
 				req.ExpiresAt = &expiresAt
@@ -461,6 +464,7 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&private, "private", false, "Mark the value as private (masked in list output)")
+	cmd.Flags().BoolVar(&oneTimeOnly, "one-time-only", false, "Delete the value after the first read")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
 	cmd.Flags().StringVar(&expiresIn, "expires-in", "", "Expiry as a duration from now (e.g. 1y, 30d, 4h, 30m)")
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read value from a file instead of a positional argument")
@@ -473,6 +477,7 @@ func newKVUpdateCmd(opts *kvCmdOpts) *cobra.Command {
 	var value string
 	var valueFile string
 	var private string // "true"|"false"|"" (unset = don't change)
+	var oneTimeOnly bool
 	var expiresAt string
 	var expiresIn string
 	cmd := &cobra.Command{
@@ -493,7 +498,8 @@ Examples:
   kh kv update MY_KEY --value new-value --private true
   kh kv update MY_KEY --value new-value --expires-in 7d
   kh kv update MY_KEY --value new-value --expires-at 2027-01-01T00:00:00Z
-  kh kv update MY_KEY --value new-value --workspace <uuid>`,
+  kh kv update MY_KEY --value new-value --workspace <uuid>
+  kh kv update MY_KEY --value new-value --one-time-only`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return kherrors.ErrMissingFlag.New("<key> argument is required: kh kv update <key> [flags]")
@@ -565,6 +571,9 @@ Examples:
 				b := private == "true"
 				req.Private = &b
 			}
+			if cmd.Flags().Changed("one-time-only") {
+				req.OneTimeOnly = &oneTimeOnly
+			}
 
 			updateErr := client.UpdateKeyValue(ctx, args[0], req)
 			if updateErr == nil {
@@ -590,6 +599,7 @@ Examples:
 						Payload:         sendValue,
 						PayloadFromFile: hasValueFile,
 						Private:         isPrivate,
+						OneTimeOnly:     oneTimeOnly,
 					}
 					if expiresAt != "" {
 						createReq.ExpiresAt = &expiresAt
@@ -608,6 +618,7 @@ Examples:
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read new value from a file")
 	cmd.Flags().StringVar(&private, "private", "", "Set private flag: true|false (bare --private means true)")
 	cmd.Flag("private").NoOptDefVal = "true"
+	cmd.Flags().BoolVar(&oneTimeOnly, "one-time-only", false, "Delete the value after the first read")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
 	cmd.Flags().StringVar(&expiresIn, "expires-in", "", "Expiry as a duration from now (e.g. 1y, 30d, 4h, 30m)")
 	return cmd

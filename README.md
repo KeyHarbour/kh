@@ -12,11 +12,8 @@ kh auth        Authenticate and manage identity
 kh tf          Terraform state management
   state          Inspect and manage states
     ls             List all states
-    show           Show a state's JSON
-    lock           Acquire an advisory lock
-    unlock         Release an advisory lock
-    verify         Validate a state's integrity
-  versions       Manage statefile versions for a workspace
+    show           Show a state's full Terraform JSON
+  version        Manage statefile versions for a workspace
     ls             List all versions
     last           Show the latest version
     get            Download a specific version by UUID
@@ -100,41 +97,42 @@ This generates `backend.tf` and `backend.hcl` pre-configured for your project.
 Bidirectional state transfer between any supported backends.
 
 **Sources** (`--from`): `local`, `http`, `tfc`, `keyharbour`
-**Destinations** (`--to`): `keyharbour`, `file`, `http`, `tfc` (default: `keyharbour`)
+**Destinations** (`--to`): `keyharbour`, `local`, `http`, `tfc` (default: `keyharbour`)
 
 ```zsh
 # From local file to KeyHarbour
-kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <workspace-uuid>
+kh tf sync --from=local --local-path ./terraform.tfstate --kh-project <uuid> --kh-workspace <workspace-uuid>
 
 # From HTTP backend to KeyHarbour
-kh tf sync --from=http --url https://old-backend.com/state --project <uuid> --workspace <workspace-uuid>
+kh tf sync --from=http --http-url https://old-backend.com/state --kh-project <uuid> --kh-workspace <workspace-uuid>
 
 # From Terraform Cloud to KeyHarbour (auto-create workspace if needed)
-kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --project <uuid> --create-workspace
+kh tf sync --from=tfc --tfc-src-org <org> --tfc-src-workspace <ws> --kh-project <uuid> --kh-create-workspace
 
 # From KeyHarbour to local file
-kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <workspace-uuid> \
-  --to=file --out ./backup.tfstate
+kh tf sync --from=keyharbour --kh-src-project <uuid> --kh-src-workspace <workspace-uuid> \
+  --to=local --local-out ./backup.tfstate
 
 # From KeyHarbour to Terraform Cloud
-kh tf sync --from=keyharbour --src-project <uuid> --src-workspace <workspace-uuid> \
-  --to=tfc --dest-tfc-org <org> --dest-tfc-workspace <ws>
+kh tf sync --from=keyharbour --kh-src-project <uuid> --kh-src-workspace <workspace-uuid> \
+  --to=tfc --tfc-dest-org <org> --tfc-dest-workspace <ws>
 
 # Between two KeyHarbour workspaces
-kh tf sync --from=keyharbour --src-project <proj1> --src-workspace <ws1-uuid> \
-  --to=keyharbour --project <proj2> --workspace <ws2-uuid> --create-workspace
+kh tf sync --from=keyharbour --kh-src-project <proj1> --kh-src-workspace <ws1-uuid> \
+  --to=keyharbour --kh-project <proj2> --kh-workspace <ws2-uuid> --kh-create-workspace
 
 # Dry-run: preview what will be synced without writing
-kh tf sync --from=tfc --tfc-org <org> --tfc-workspace <ws> --dry-run
+kh tf sync --from=tfc --tfc-src-org <org> --tfc-src-workspace <ws> --dry-run
 
 # Generate backend.hcl after a successful sync
-kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace <workspace-uuid> \
-  --gen-backend
+kh tf sync --from=local --local-path ./terraform.tfstate --kh-project <uuid> --kh-workspace <workspace-uuid> \
+  --kh-gen-backend
 ```
 
 **Notes:**
 
-- Use `{workspace}` and `{key}` placeholders in `--out` for batch `--to=file` exports.
+- Use `{workspace}` and `{key}` placeholders in `--local-out` for batch `--to=local` exports.
+- TFC authentication uses `TF_API_TOKEN` or `TF_TOKEN_app_terraform_io` env vars (or `--tfc-src-token` / `--tfc-dest-token` flags).
 
 ---
 
@@ -145,16 +143,11 @@ kh tf sync --from=local --path ./terraform.tfstate --project <uuid> --workspace 
 kh tf state ls
 kh tf state ls --project <uuid> --workspace <workspace-uuid>
 
-# Show a state's full Terraform JSON
+# Show a state's full Terraform JSON (default)
 kh tf state show <state-id>
-kh tf state show <state-id> --raw
 
-# Acquire / release an advisory lock
-kh tf state lock <state-id>
-kh tf state unlock <state-id> --force
-
-# Validate a state's integrity
-kh tf state verify <state-id> --full
+# Show metadata summary only
+kh tf state show <state-id> --meta
 ```
 
 ---
@@ -169,14 +162,18 @@ Commands acting on a specific version (`get`, `rm`) only need the statefile UUID
 kh tf version ls --project <uuid> --workspace <uuid>
 
 # Show the latest version
+kh tf version last --project <uuid> --workspace <uuid>
 kh tf version last --project <uuid> --workspace <uuid> --raw
+kh tf version last --project <uuid> --workspace <uuid> --output json
 
 # Download a specific version
 kh tf version get <statefile-uuid>
 kh tf version get <statefile-uuid> --raw
+kh tf version get <statefile-uuid> --output json
 
 # Upload a new version
 kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate
+kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate --output json
 terraform state pull | kh tf version push --project <uuid> --workspace <workspace-uuid> --stdin
 
 # Delete a specific version
@@ -229,6 +226,7 @@ kh kv set MY_SECRET s3cr3t --workspace <uuid> --private
 kh kv set MY_TEMP value --workspace <uuid> --expires-in 30d
 kh kv set MY_TEMP value --workspace <uuid> --expires-at 2026-12-31T00:00:00Z
 kh kv set CERT --value-file ./cert.pem --workspace <uuid>
+kh kv set ONE_SHOT secret --workspace <uuid> --one-time-only   # deleted after first GET
 
 # Update a key
 # Positional/--value sends `value`; --value-file sends `value_file`
@@ -236,6 +234,7 @@ kh kv update MY_KEY new-value
 kh kv update MY_KEY --value new-value
 kh kv update MY_KEY --value-file ./cert.pem
 kh kv update MY_KEY new-value --expires-in 7d
+kh kv update MY_KEY --value new-value --one-time-only
 
 # Delete a key
 kh kv delete MY_KEY --force
@@ -416,4 +415,6 @@ export KH_DEBUG=1
 
 ## License
 
-Copyright (c) 2024 KeyHarbour. All rights reserved.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+See [LICENSE](LICENSE) for the full license text.

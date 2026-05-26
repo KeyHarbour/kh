@@ -27,13 +27,13 @@ func TestSnapshot(t *testing.T) {
 	dir := snapshotDir(t)
 
 	// 1. Auth identity (text output — whoami has no JSON flag).
-	whoamiOut := runOK(t, kh, "whoami")
+	whoamiOut := runOK(t, kh, "auth", "whoami")
 	if err := os.WriteFile(filepath.Join(dir, "whoami.txt"), whoamiOut, 0o644); err != nil {
 		t.Fatalf("write whoami.txt: %v", err)
 	}
 
 	// 2. HTTP-backend states list (populated when Terraform pushes via HTTP backend).
-	captureJSON(t, kh, dir, "states.json", "state", "ls", "-o", "json")
+	captureJSON(t, kh, dir, "states.json", "tf", "state", "ls", "-o", "json")
 
 	// 3. Per-state raw content for integrity hashing during regression.
 	var states []map[string]any
@@ -50,7 +50,7 @@ func TestSnapshot(t *testing.T) {
 			continue
 		}
 		t.Run("state/"+id, func(t *testing.T) {
-			out := runOK(t, kh, "state", "show", id, "--raw")
+			out := runOK(t, kh, "tf", "state", "show", id)
 			if err := os.WriteFile(filepath.Join(statesDir, id+".json"), out, 0o644); err != nil {
 				t.Errorf("write state %s: %v", id, err)
 			}
@@ -58,7 +58,7 @@ func TestSnapshot(t *testing.T) {
 	}
 
 	// 4. Workspaces and their statefiles (populated by kh sync / statefiles push).
-	captureJSON(t, kh, dir, "workspaces.json", "workspaces", "ls", "--project", project, "-o", "json")
+	captureJSON(t, kh, dir, "workspaces.json", "workspace", "ls", "--project", project, "-o", "json")
 
 	var workspaces []map[string]any
 	wsData := loadJSON[[]map[string]any](t, filepath.Join(dir, "workspaces.json"))
@@ -77,7 +77,7 @@ func TestSnapshot(t *testing.T) {
 		t.Run("statefiles/"+wsName, func(t *testing.T) {
 			// Capture statefile list for this workspace.
 			captureJSON(t, kh, sfDir, wsUUID+".json",
-				"statefiles", "ls",
+				"tf", "version", "ls",
 				"--project", project,
 				"--workspace", wsUUID,
 				"-o", "json",
@@ -107,7 +107,7 @@ func TestSnapshot(t *testing.T) {
 	}
 
 	// 6. Project detail.
-	captureJSON(t, kh, dir, "project.json", "projects", "show", project)
+	captureJSON(t, kh, dir, "project.json", "project", "show", project)
 
 	// 7. Per-workspace details (name, description).
 	wsDetailsDir := filepath.Join(dir, "workspace_details")
@@ -122,7 +122,7 @@ func TestSnapshot(t *testing.T) {
 		wsName, _ := ws["name"].(string)
 		t.Run("workspace_details/"+wsName, func(t *testing.T) {
 			captureJSON(t, kh, wsDetailsDir, wsUUID+".json",
-				"workspaces", "show", wsUUID,
+				"workspace", "show", wsUUID,
 				"--project", project,
 			)
 		})
