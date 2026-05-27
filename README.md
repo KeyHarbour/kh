@@ -185,6 +185,20 @@ kh tf version rm-all --project <uuid> --workspace <uuid> --force
 
 ---
 
+### Project Management (`kh project`)
+
+```zsh
+kh project ls --org <org-uuid>
+kh project show <project-uuid>
+kh project create <name> --org <org-uuid> --environment production
+kh project create <name> --org <org-uuid> --environment production --environment staging --description "..."
+kh project update <project-uuid> --name new-name --environment production
+```
+
+`--org` accepts the organization UUID; falls back to `KH_ORG`.
+
+---
+
 ### Workspace Management (`kh workspace`)
 
 ```zsh
@@ -264,11 +278,14 @@ Values can be encrypted with AES-256-GCM before being sent to the server. The ke
 # Generate a key
 openssl rand -hex 32 > ~/.kh/enc.key && chmod 600 ~/.kh/enc.key
 
-# Store encrypted / retrieve decrypted
+# Store encrypted / retrieve decrypted via environment variable (recommended)
+export KH_ENCRYPTION_KEY=$(cat ~/.kh/enc.key)
+kh kv set DB_PASSWORD s3cr3t --workspace <uuid> --encrypt
+kh kv get DB_PASSWORD --encrypt
+
+# Or pass the key as a file path
 kh kv set DB_PASSWORD s3cr3t --workspace <uuid> --encryption-key-file ~/.kh/enc.key
 kh kv get DB_PASSWORD --encryption-key-file ~/.kh/enc.key
-
-# Or via env var (recommended for CI)
 export KH_ENCRYPTION_KEY_FILE=~/.kh/enc.key
 ```
 
@@ -345,7 +362,8 @@ kh license users import members.csv
 | `KH_OUTPUT` | Default output format: `table` or `json` |
 | `KH_DEBUG` | Set to `1` for verbose debug logs |
 | `KH_INSECURE` | Set to `1` to skip TLS certificate verification (dev/test only) |
-| `KH_ENCRYPTION_KEY_FILE` | Path to hex-encoded 256-bit AES key file for client-side KV encryption |
+| `KH_ENCRYPTION_KEY` | Hex-encoded 256-bit AES key for client-side KV encryption (used with `--encrypt`) |
+| `KH_ENCRYPTION_KEY_FILE` | Path to a file containing the hex-encoded 256-bit AES key (used with `--encryption-key-file`) |
 
 Priority order: config file < environment variable < CLI flag.
 

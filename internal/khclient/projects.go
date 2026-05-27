@@ -7,6 +7,61 @@ import (
 	"net/url"
 )
 
+func (c *Client) ListProjects(ctx context.Context, organizationUUID string) ([]Project, error) {
+	if organizationUUID == "" {
+		return nil, fmt.Errorf("organization uuid is required")
+	}
+	p := "/organizations/" + url.PathEscape(organizationUUID) + "/projects"
+	resp, err := c.do(ctx, http.MethodGet, p, nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := expectStatus("list projects", resp, http.StatusOK); err != nil {
+		return nil, err
+	}
+	var out []Project
+	return out, decodeJSON(resp, &out)
+}
+
+func (c *Client) CreateProject(ctx context.Context, organizationUUID string, req CreateProjectRequest) (Project, error) {
+	if organizationUUID == "" {
+		return Project{}, fmt.Errorf("organization uuid is required")
+	}
+	body := struct {
+		Project CreateProjectRequest `json:"project"`
+	}{Project: req}
+	p := "/organizations/" + url.PathEscape(organizationUUID) + "/projects"
+	resp, err := c.do(ctx, http.MethodPost, p, nil, body, nil)
+	if err != nil {
+		return Project{}, err
+	}
+	defer resp.Body.Close()
+	if err := expectStatus("create project", resp, http.StatusCreated); err != nil {
+		return Project{}, err
+	}
+	var out Project
+	if err := decodeJSON(resp, &out); err != nil {
+		return Project{Name: req.Name}, nil
+	}
+	if out.Name == "" {
+		out.Name = req.Name
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateProject(ctx context.Context, projectUUID string, req UpdateProjectRequest) error {
+	if projectUUID == "" {
+		return fmt.Errorf("project uuid is required")
+	}
+	resp, err := c.do(ctx, http.MethodPatch, "/projects/"+url.PathEscape(projectUUID), nil, req, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return expectStatus("update project", resp, http.StatusAccepted)
+}
+
 // CreateWorkspaceRequest represents the request body for creating a workspace
 type CreateWorkspaceRequest struct {
 	Name        string `json:"name"`

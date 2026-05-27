@@ -406,3 +406,83 @@ func TestDeleteKeyValue_RequiresKey(t *testing.T) {
 		t.Fatal("expected error for empty key")
 	}
 }
+
+func TestCreateKeyValue_SendsOneTimeOnly(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, `{"status":"accepted"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	if err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
+		Key:         "OTP_KEY",
+		Payload:     "secret",
+		OneTimeOnly: true,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if gotFields["one_time_only"] != "true" {
+		t.Fatalf("expected one_time_only=true in form, got: %#v", gotFields)
+	}
+}
+
+func TestCreateKeyValue_OmitsOneTimeOnlyWhenFalse(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, `{"status":"accepted"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	if err := c.CreateKeyValue(context.Background(), "ws", CreateKeyValueRequest{
+		Key:     "REGULAR_KEY",
+		Payload: "value",
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	// one_time_only=false is still sent (mirrors how private is always sent)
+	if v, ok := gotFields["one_time_only"]; ok && v != "false" {
+		t.Fatalf("expected one_time_only absent or false, got: %q", v)
+	}
+}
+
+func TestUpdateKeyValue_SendsOneTimeOnly(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"status":"updated"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	b := true
+	if err := c.UpdateKeyValue(context.Background(), "OTP_KEY", UpdateKeyValueRequest{
+		Payload:     "secret",
+		OneTimeOnly: &b,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if gotFields["one_time_only"] != "true" {
+		t.Fatalf("expected one_time_only=true in form, got: %#v", gotFields)
+	}
+}
+
+func TestUpdateKeyValue_OmitsOneTimeOnlyWhenNotSet(t *testing.T) {
+	var gotFields map[string]string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		gotFields = parseMultipartFields(t, r)
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"status":"updated"}`)
+	})
+
+	c := New(config.Config{Endpoint: srv.URL})
+	if err := c.UpdateKeyValue(context.Background(), "MY_KEY", UpdateKeyValueRequest{Payload: "value"}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if _, ok := gotFields["one_time_only"]; ok {
+		t.Fatalf("expected one_time_only absent when not set, got: %#v", gotFields)
+	}
+}

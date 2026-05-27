@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 type kvCmdOpts struct {
 	project           string
 	workspace         string
+	encrypt           bool
 	encryptionKeyFile string
 }
 
@@ -41,6 +43,7 @@ Commands that operate on the workspace collection (ls, set) require --workspace
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID (or KH_WORKSPACE)")
+	cmd.PersistentFlags().BoolVar(&opts.encrypt, "encrypt", false, "Encrypt/decrypt values using KH_ENCRYPTION_KEY from the environment")
 	cmd.PersistentFlags().StringVar(&opts.encryptionKeyFile, "encryption-key-file", "", "Path to a file containing the hex-encoded 256-bit AES key (or KH_ENCRYPTION_KEY_FILE)")
 
 	cmd.AddCommand(newKVListCmd(opts))
@@ -104,27 +107,45 @@ func parseExpiresIn(s string) (string, error) {
 	return time.Now().UTC().Add(d).Format(time.RFC3339), nil
 }
 
-func (o *kvCmdOpts) resolveEncryptionKey(_ config.Config) (*[32]byte, error) {
+func (o *kvCmdOpts) resolveEncryptionKey(_ config.Config, stderr io.Writer) (*[32]byte, error) {
 	keyFile := o.encryptionKeyFile
 	if keyFile == "" {
 		keyFile = os.Getenv("KH_ENCRYPTION_KEY_FILE")
 	}
+
+	if o.encrypt && keyFile != "" {
+		return nil, kherrors.ErrConflictingFlags.New("provide either --encrypt (uses KH_ENCRYPTION_KEY) or --encryption-key-file, not both")
+	}
+
+	if o.encrypt {
+		rawHex := os.Getenv("KH_ENCRYPTION_KEY")
+		if rawHex == "" {
+			fmt.Fprintf(stderr, "warning: --encrypt set but KH_ENCRYPTION_KEY is not defined — values will not be encrypted\n")
+			return nil, nil
+		}
+		key, err := kvencrypt.ParseKey(strings.TrimSpace(rawHex))
+		if err != nil {
+			return nil, kherrors.ErrInvalidValue.Wrap(err.Error(), err)
+		}
+		return &key, nil
+	}
+
 	if keyFile == "" {
 		return nil, nil // encryption not requested
 	}
+
 	// Warn if the key file is readable by anyone other than the owner.
 	// A world- or group-readable key file silently compromises all encrypted values.
 	if fi, err := os.Stat(keyFile); err == nil {
 		if fi.Mode().Perm()&0o077 != 0 {
-			fmt.Fprintf(os.Stderr, "warning: encryption key file %q has permissions %04o — expected 0400 or 0600\n", keyFile, fi.Mode().Perm())
+			fmt.Fprintf(stderr, "warning: encryption key file %q has permissions %04o — expected 0400 or 0600\n", keyFile, fi.Mode().Perm())
 		}
 	}
 	data, err := os.ReadFile(keyFile)
 	if err != nil {
 		return nil, kherrors.ErrInvalidValue.Wrapf(err, "cannot read encryption key file: %s", err)
 	}
-	raw := strings.TrimSpace(string(data))
-	key, err := kvencrypt.ParseKey(raw)
+	key, err := kvencrypt.ParseKey(strings.TrimSpace(string(data)))
 	if err != nil {
 		return nil, kherrors.ErrInvalidValue.Wrap(err.Error(), err)
 	}
@@ -162,7 +183,7 @@ Examples:
 				return err
 			}
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -245,7 +266,7 @@ Examples:
 				return err
 			}
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -263,7 +284,7 @@ Examples:
 				}
 				raw = []byte(plain)
 			case kvencrypt.IsEncrypted(val):
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key-file or KH_ENCRYPTION_KEY_FILE to decrypt\n")
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encrypt (with KH_ENCRYPTION_KEY) or --encryption-key-file to decrypt\n")
 			case kv.Private && !reveal:
 				raw = []byte("*** (use --reveal to show)")
 			}
@@ -319,7 +340,7 @@ Examples:
 				return err
 			}
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -338,7 +359,7 @@ Examples:
 				}
 				val = plain
 			case kvencrypt.IsEncrypted(val):
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encryption-key-file or KH_ENCRYPTION_KEY_FILE to decrypt\n")
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encrypt (with KH_ENCRYPTION_KEY) or --encryption-key-file to decrypt\n")
 			case kv.Private && !reveal:
 				val = "*** (use --reveal to show)"
 			}
@@ -418,7 +439,7 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -543,7 +564,7 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -693,7 +714,7 @@ func resolveKVPairs(
 		val := kv.Value
 		if kvencrypt.IsEncrypted(val) {
 			if encKey == nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping encrypted key %q (no --encryption-key-file)\n", kv.Key)
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping encrypted key %q (set --encrypt with KH_ENCRYPTION_KEY, or use --encryption-key-file)\n", kv.Key)
 				continue
 			}
 			plain, err := kvencrypt.Decrypt(*encKey, val)
@@ -727,7 +748,7 @@ is stripped from the variable name before output, so KH_ENV_DATABASE_URL becomes
 DATABASE_URL. Without --prefix all keys are included as-is.
 
 Use --environment to filter to keys tagged with a specific environment label.
-Encrypted values are decrypted automatically when --encryption-key-file is set.
+Encrypted values are decrypted automatically when --encrypt (KH_ENCRYPTION_KEY) or --encryption-key-file is set.
 Private values are included — secure your terminal session accordingly.
 
 Examples:
@@ -746,7 +767,7 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -790,7 +811,7 @@ Use --prefix to include only keys that start with the given prefix. The prefix
 is stripped from the variable name before injection, so KH_ENV_DATABASE_URL
 becomes DATABASE_URL in the child process environment.
 
-Encrypted values are decrypted automatically when --encryption-key-file is set.
+Encrypted values are decrypted automatically when --encrypt (KH_ENCRYPTION_KEY) or --encryption-key-file is set.
 Use --environment to inject only keys tagged with a specific environment label.
 
 Examples:
@@ -814,7 +835,7 @@ Examples:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			encKey, err := opts.resolveEncryptionKey(cfg)
+			encKey, err := opts.resolveEncryptionKey(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
