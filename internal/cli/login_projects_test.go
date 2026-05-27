@@ -177,24 +177,243 @@ func TestProjectsCommand_HasExpectedSubcommands(t *testing.T) {
 		seen[sub.Name()] = true
 	}
 
-	for _, want := range []string{"ls", "show"} {
+	for _, want := range []string{"ls", "show", "create", "update"} {
 		if !seen[want] {
 			t.Fatalf("expected subcommand %s to be present", want)
 		}
 	}
 }
 
-func TestProjectsListCommand_ReturnsGuidanceError(t *testing.T) {
+func TestProjectsListCommand_RequiresOrg(t *testing.T) {
+	useTempConfigHome(t)
 	cmd := newProjectsListCmd()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
 	err := cmd.RunE(cmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "projects listing is not supported") {
-		t.Fatalf("expected guidance error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "--org is required") {
+		t.Fatalf("expected missing org error, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "workspace ls --project") {
-		t.Fatalf("expected guidance in error, got %v", err)
+}
+
+func TestProjectsListCommand_TableOutput(t *testing.T) {
+	useTempConfigHome(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"uuid":"p-1","name":"alpha"},{"uuid":"p-2","name":"beta"}]`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	buf := &bytes.Buffer{}
+	cmd := newProjectsListCmd()
+	cmd.SetOut(buf)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--org", "org-123"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("ls failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "alpha") || !strings.Contains(buf.String(), "beta") {
+		t.Fatalf("unexpected output %q", buf.String())
+	}
+}
+
+func TestProjectsListCommand_JSONOutput(t *testing.T) {
+	useTempConfigHome(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"uuid":"p-1","name":"alpha"}]`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	buf := &bytes.Buffer{}
+	cmd := newProjectsListCmd()
+	cmd.SetOut(buf)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--org", "org-123", "-o", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("ls failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), `"uuid"`) || !strings.Contains(buf.String(), "alpha") {
+		t.Fatalf("unexpected output %q", buf.String())
+	}
+}
+
+func TestProjectsCreateCommand_RequiresOrg(t *testing.T) {
+	useTempConfigHome(t)
+	cmd := newProjectsCreateCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"my-project", "--environment", "production"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--org is required") {
+		t.Fatalf("expected missing org error, got %v", err)
+	}
+}
+
+func TestProjectsCreateCommand_RequiresEnvironment(t *testing.T) {
+	useTempConfigHome(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	cmd := newProjectsCreateCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"my-project", "--org", "org-123"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--environment is required") {
+		t.Fatalf("expected missing environment error, got %v", err)
+	}
+}
+
+func TestProjectsCreateCommand_SendsCorrectPayload(t *testing.T) {
+	useTempConfigHome(t)
+
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v2/organizations/org-123/projects" {
+			http.NotFound(w, r)
+			return
+		}
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"uuid":"p-new","name":"my-project"}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	buf := &bytes.Buffer{}
+	cmd := newProjectsCreateCmd()
+	cmd.SetOut(buf)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"my-project", "--org", "org-123", "--environment", "production", "--environment", "staging"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "created") {
+		t.Fatalf("unexpected output %q", buf.String())
+	}
+	body := string(gotBody)
+	if !strings.Contains(body, `"my-project"`) {
+		t.Fatalf("expected project name in body, got: %s", body)
+	}
+	if !strings.Contains(body, "production") || !strings.Contains(body, "staging") {
+		t.Fatalf("expected environments in body, got: %s", body)
+	}
+}
+
+func TestProjectsUpdateCommand_RequiresFlag(t *testing.T) {
+	useTempConfigHome(t)
+	cmd := newProjectsUpdateCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"proj-123"})
+
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "at least one of --name or --environment") {
+		t.Fatalf("expected missing flag error, got %v", err)
+	}
+}
+
+func TestProjectsUpdateCommand_SendsCorrectPayload(t *testing.T) {
+	useTempConfigHome(t)
+
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/projects/proj-123":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"proj-123","name":"old-name","environment_names":["staging"]}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/v2/projects/proj-123":
+			gotBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"status":"updated"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	buf := &bytes.Buffer{}
+	cmd := newProjectsUpdateCmd()
+	cmd.SetOut(buf)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"proj-123", "--name", "new-name", "--environment", "production"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	body := string(gotBody)
+	if !strings.Contains(body, `"new-name"`) {
+		t.Fatalf("expected new-name in body, got: %s", body)
+	}
+	if !strings.Contains(body, "production") {
+		t.Fatalf("expected environment in body, got: %s", body)
+	}
+}
+
+func TestProjectsUpdateCommand_FillsUnchangedFieldsFromCurrentState(t *testing.T) {
+	useTempConfigHome(t)
+
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/projects/proj-123":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"proj-123","name":"existing-name","environment_names":["staging","production"]}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/v2/projects/proj-123":
+			gotBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"status":"updated"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "test-token")
+
+	cmd := newProjectsUpdateCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	// Only pass --name; environments should be preserved from current state.
+	cmd.SetArgs([]string{"proj-123", "--name", "renamed"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	body := string(gotBody)
+	if !strings.Contains(body, `"renamed"`) {
+		t.Fatalf("expected renamed in body, got: %s", body)
+	}
+	if !strings.Contains(body, "staging") || !strings.Contains(body, "production") {
+		t.Fatalf("expected existing environments preserved in body, got: %s", body)
 	}
 }
 

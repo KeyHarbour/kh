@@ -454,3 +454,171 @@ func TestGetOrCreateWorkspace_ListError(t *testing.T) {
 		t.Fatal("expected error when list fails, got nil")
 	}
 }
+
+func TestListProjects(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/organizations/org-1/projects" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]Project{
+			{UUID: "p-1", Name: "alpha"},
+			{UUID: "p-2", Name: "beta"},
+		})
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	projects, err := client.ListProjects(context.Background(), "org-1")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+	if projects[0].UUID != "p-1" || projects[0].Name != "alpha" {
+		t.Fatalf("unexpected project[0]: %+v", projects[0])
+	}
+}
+
+func TestListProjects_RequiresOrgUUID(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if _, err := client.ListProjects(context.Background(), ""); err == nil {
+		t.Fatal("expected error for empty org uuid")
+	}
+}
+
+func TestListProjects_ServerError(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if _, err := client.ListProjects(context.Background(), "org-1"); err == nil {
+		t.Fatal("expected error on 401, got nil")
+	}
+}
+
+func TestCreateProject(t *testing.T) {
+	var gotBody []byte
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/organizations/org-1/projects" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(Project{UUID: "p-new", Name: "my-project"})
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	proj, err := client.CreateProject(context.Background(), "org-1", CreateProjectRequest{
+		Name:             "my-project",
+		EnvironmentNames: []string{"production", "staging"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if proj.UUID != "p-new" || proj.Name != "my-project" {
+		t.Fatalf("unexpected project: %+v", proj)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(gotBody, &m); err != nil {
+		t.Fatalf("invalid body JSON: %v", err)
+	}
+	inner, _ := m["project"].(map[string]any)
+	if inner == nil || inner["name"] != "my-project" {
+		t.Fatalf("expected project.name in body, got: %s", gotBody)
+	}
+}
+
+func TestCreateProject_RequiresOrgUUID(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if _, err := client.CreateProject(context.Background(), "", CreateProjectRequest{Name: "x"}); err == nil {
+		t.Fatal("expected error for empty org uuid")
+	}
+}
+
+func TestCreateProject_ServerError(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		io.WriteString(w, `{"errors":["name has already been taken"]}`)
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if _, err := client.CreateProject(context.Background(), "org-1", CreateProjectRequest{Name: "taken"}); err == nil {
+		t.Fatal("expected error on 422, got nil")
+	}
+}
+
+func TestUpdateProject(t *testing.T) {
+	var gotBody []byte
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		if r.URL.Path != "/projects/p-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	err := client.UpdateProject(context.Background(), "p-1", UpdateProjectRequest{
+		Name:             "new-name",
+		EnvironmentNames: []string{"production"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(gotBody, &m); err != nil {
+		t.Fatalf("invalid body JSON: %v", err)
+	}
+	if m["name"] != "new-name" {
+		t.Fatalf("expected name=new-name in body, got: %s", gotBody)
+	}
+	// UpdateProject sends the body directly — no wrapper object
+	if _, hasProject := m["project"]; hasProject {
+		t.Fatalf("UpdateProject should NOT wrap in a 'project' key, got: %s", gotBody)
+	}
+}
+
+func TestUpdateProject_RequiresUUID(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called")
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if err := client.UpdateProject(context.Background(), "", UpdateProjectRequest{Name: "x"}); err == nil {
+		t.Fatal("expected error for empty uuid")
+	}
+}
+
+func TestUpdateProject_ServerError(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	client := New(config.Config{Endpoint: srv.URL})
+	if err := client.UpdateProject(context.Background(), "p-1", UpdateProjectRequest{Name: "x"}); err == nil {
+		t.Fatal("expected error on 404, got nil")
+	}
+}

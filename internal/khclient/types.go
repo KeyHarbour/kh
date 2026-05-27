@@ -38,6 +38,17 @@ type Project struct {
 	Environments []string `json:"environment_names,omitempty"`
 }
 
+type CreateProjectRequest struct {
+	Name             string   `json:"name"`
+	Description      string   `json:"description,omitempty"`
+	EnvironmentNames []string `json:"environment_names"`
+}
+
+type UpdateProjectRequest struct {
+	Name             string   `json:"name"`
+	EnvironmentNames []string `json:"environment_names"`
+}
+
 type Workspace struct {
 	UUID        string `json:"uuid"`
 	Name        string `json:"name"`

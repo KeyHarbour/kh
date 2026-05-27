@@ -1174,3 +1174,238 @@ func TestKVUpdate_ConflictingValueFlags(t *testing.T) {
 		"--value-file", "/dev/null")
 	assertKVKHError(t, err, "KH-VAL-004")
 }
+
+// ── one-time-only ─────────────────────────────────────────────────────────────
+
+func TestKVSet_OneTimeOnly(t *testing.T) {
+	var bodyBytes []byte
+	var contentType string
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	_, err := runKVCmd(t, srv, "set", "OTP_KEY", "secret",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--one-time-only")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["one_time_only"] != "true" {
+		t.Errorf("expected one_time_only=true in form, got: %#v", fields)
+	}
+}
+
+func TestKVSet_OneTimeOnly_NotSentByDefault(t *testing.T) {
+	var bodyBytes []byte
+	var contentType string
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			return
+		}
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "value",
+		"--workspace", "11111111-2222-3333-4444-555555555555")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if v := fields["one_time_only"]; v == "true" {
+		t.Errorf("did not expect one_time_only=true when flag not passed, got: %#v", fields)
+	}
+}
+
+func TestKVUpdate_OneTimeOnly(t *testing.T) {
+	var bodyBytes []byte
+	var contentType string
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", r.Method)
+		}
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "new-value", "--one-time-only")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["one_time_only"] != "true" {
+		t.Errorf("expected one_time_only=true in form, got: %#v", fields)
+	}
+}
+
+func TestKVUpdate_OneTimeOnly_NotSentByDefault(t *testing.T) {
+	var bodyBytes []byte
+	var contentType string
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			return
+		}
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	_, err := runKVCmd(t, srv, "update", "MY_KEY", "value")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["one_time_only"] == "true" {
+		t.Errorf("did not expect one_time_only=true when flag not passed, got: %#v", fields)
+	}
+}
+
+func TestKVList_ShowsOneTimeOnlyColumn(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"key": "OTP_KEY", "value": "s", "private": false, "one_time_only": true},
+			{"key": "REG_KEY", "value": "v", "private": false, "one_time_only": false},
+		})
+	})
+
+	out, err := runKVCmd(t, srv, "ls", "--workspace", "11111111-2222-3333-4444-555555555555")
+	if err != nil {
+		t.Fatalf("ls failed: %v", err)
+	}
+	if !strings.Contains(out, "ONE TIME ONLY") {
+		t.Errorf("expected ONE TIME ONLY column header, got: %q", out)
+	}
+	if !strings.Contains(out, "true") {
+		t.Errorf("expected true for OTP_KEY, got: %q", out)
+	}
+}
+
+// ── --encrypt flag / KH_ENCRYPTION_KEY env var ───────────────────────────────
+
+func TestKVSet_EncryptFlagUsesEnvKey(t *testing.T) {
+	var bodyBytes []byte
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	t.Setenv("KH_ENCRYPTION_KEY", strings.Repeat("ab", 32))
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "plaintext",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--encrypt",
+	)
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if strings.Contains(string(bodyBytes), "plaintext") {
+		t.Errorf("plaintext must not be sent to API, got: %s", bodyBytes)
+	}
+	if !strings.Contains(string(bodyBytes), "enc:v1:") {
+		t.Errorf("expected enc:v1: ciphertext in body, got: %s", bodyBytes)
+	}
+}
+
+func TestKVSet_EncryptFlagWithoutEnvKeyWarnsAndSkips(t *testing.T) {
+	var bodyBytes []byte
+	var contentType string
+	var stderrBuf bytes.Buffer
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	})
+
+	t.Setenv("KH_ENDPOINT", srv.URL)
+	t.Setenv("KH_TOKEN", "test-token")
+	t.Setenv("KH_ENCRYPTION_KEY", "") // explicitly unset
+
+	cmd := newKVCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&stderrBuf)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{"set", "MY_KEY", "plaintext",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--encrypt",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(stderrBuf.String(), "KH_ENCRYPTION_KEY is not defined") {
+		t.Errorf("expected warning about missing env key, got: %s", stderrBuf.String())
+	}
+	// Value should be sent as plaintext since no key was available
+	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
+	if fields["value"] != "plaintext" {
+		t.Errorf("expected plaintext value when key is missing, got: %#v", fields)
+	}
+}
+
+func TestKVGet_DecryptsWithEncryptFlag(t *testing.T) {
+	var encKey [32]byte
+	for i := range encKey {
+		encKey[i] = 0xab
+	}
+	ciphertext, _ := kvencrypt.Encrypt(encKey, "secret-value")
+
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"value": ciphertext, "expires_at": nil, "private": false})
+	})
+
+	t.Setenv("KH_ENCRYPTION_KEY", strings.Repeat("ab", 32))
+	out, err := runKVCmd(t, srv, "get", "MY_KEY", "--encrypt")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	if !strings.Contains(out, "secret-value") {
+		t.Errorf("expected decrypted value in output, got: %s", out)
+	}
+}
+
+func TestKVSet_EncryptAndKeyFileConflictReturnsError(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called when --encrypt and --encryption-key-file conflict")
+	})
+
+	keyFile := writeKeyFile(t, strings.Repeat("ab", 32))
+	t.Setenv("KH_ENCRYPTION_KEY", strings.Repeat("ab", 32))
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "value",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--encrypt",
+		"--encryption-key-file", keyFile,
+	)
+	if err == nil {
+		t.Fatal("expected error when both --encrypt and --encryption-key-file are set")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestKVSet_EncryptFlagWithInvalidEnvKeyReturnsError(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called with invalid key")
+	})
+
+	t.Setenv("KH_ENCRYPTION_KEY", "tooshort")
+	_, err := runKVCmd(t, srv, "set", "MY_KEY", "value",
+		"--workspace", "11111111-2222-3333-4444-555555555555",
+		"--encrypt",
+	)
+	if err == nil {
+		t.Fatal("expected error for invalid KH_ENCRYPTION_KEY value")
+	}
+}

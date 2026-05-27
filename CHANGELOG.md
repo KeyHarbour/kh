@@ -1,3 +1,17 @@
+## v1.13.0 (2026-05-26)
+
+### Features
+* add --encryption-key flag and KH_ENCRYPTION_KEY env var for kv encryption (7053dde)
+* add project ls, create, and update commands (b466d76)
+
+### Maintenance
+* replace --encryption-key flag with --encrypt boolean flag (8acf680)
+
+### Documentation
+* add KH_ENCRYPTION_KEY to environment variables table in README (807d6e4)
+
+---
+
 ## v1.12.1 (2026-05-26)
 
 ### Features
