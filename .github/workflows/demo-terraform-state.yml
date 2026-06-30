@@ -1,0 +1,145 @@
+name: Demo - Terraform State Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      show_state_details:
+        description: 'Show full state details (may be large)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_PROJECT: ${{ vars.KH_PROJECT }}
+  KH_ENVIRONMENT: ${{ vars.KH_ENVIRONMENT }}
+
+jobs:
+  demo-state:
+    environment: demo
+    name: Terraform State Discovery & Management
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_PROJECT=$(echo "$KH_PROJECT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_ENVIRONMENT=$(echo "$KH_ENVIRONMENT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+          echo "KH_PROJECT=$KH_PROJECT" >> $GITHUB_ENV
+          echo "KH_ENVIRONMENT=$KH_ENVIRONMENT" >> $GITHUB_ENV
+
+      - name: "Step 1 - List All States"
+        run: |
+          echo "Listing all Terraform states in project..."
+  echo ""
+  echo "This demo will show you how to:"
+  echo "  - List all Terraform states in your workspace"
+  echo "  - Display state details and metadata"
+  echo "  - View version history for each state"
+  echo "  - Retrieve the latest state version"
+  echo ""
+  echo "Running command:"
+  echo "  kh tf state ls \\
+  echo "    --project $KH_PROJECT \\
+  echo "    --output json"
+  echo ""
+          echo ""
+
+          ${{ env.CLI_PATH }} tf state ls \
+            --project "$KH_PROJECT" \
+            --output json > /tmp/states.json
+
+          echo "OK States retrieved successfully"
+          echo ""
+          echo "Found $(jq 'length' /tmp/states.json) state(s)"
+
+      - name: "Step 2 - Display States"
+        run: |
+          echo "## Terraform States"
+          echo ""
+          jq -r '.[] | "\(.id | .[0:8]): \(.name) (\(.updated_at))"' /tmp/states.json || echo "No states found"
+
+      - name: "Step 3 - Show State Details (First State)"
+        if: ${{ inputs.show_state_details == 'true' }}
+        run: |
+          STATE_ID=$(jq -r '.[0].id' /tmp/states.json)
+
+          if [ "$STATE_ID" != "null" ] && [ -n "$STATE_ID" ]; then
+            echo "Showing details for state: $STATE_ID"
+            echo ""
+
+            ${{ env.CLI_PATH }} tf state show \
+              --id "$STATE_ID" \
+              --project "$KH_PROJECT" \
+              --output json | jq '.' | head -50
+
+            echo ""
+            echo "... (output truncated)"
+          else
+            echo "No states available to display"
+          fi
+
+      - name: "Step 4 - List State Versions (First State)"
+        run: |
+          STATE_ID=$(jq -r '.[0].id' /tmp/states.json)
+
+          if [ "$STATE_ID" != "null" ] && [ -n "$STATE_ID" ]; then
+            echo "Listing versions for state: $STATE_ID"
+            echo ""
+
+            ${{ env.CLI_PATH }} tf version ls \
+              --state "$STATE_ID" \
+              --project "$KH_PROJECT" \
+              --output json > /tmp/versions.json
+
+            echo "Found $(jq 'length' /tmp/versions.json) version(s)"
+            echo ""
+
+            jq -r '.[] | "\(.id | .[0:8]): v\(.version) (updated: \(.updated_at))"' /tmp/versions.json
+          else
+            echo "No states available"
+          fi
+
+      - name: "Step 5 - Get Latest Version"
+        run: |
+          STATE_ID=$(jq -r '.[0].id' /tmp/states.json)
+
+          if [ "$STATE_ID" != "null" ] && [ -n "$STATE_ID" ]; then
+            echo "Getting latest version for state: $STATE_ID"
+            echo ""
+
+            ${{ env.CLI_PATH }} tf version last \
+              --state "$STATE_ID" \
+              --project "$KH_PROJECT" \
+              --output json | jq '.'
+          else
+            echo "No states available"
+          fi
+
+      - name:  Summary
+        if: always()
+        run: |
+          echo "## Terraform State Management Demo"
+          echo ""
+          echo "### Operations Performed"
+          echo "-  LIST STATES: Discovered all workspace states"
+          echo "-  SHOW STATE: Retrieved state details"
+          echo "-  LIST VERSIONS: Viewed state version history"
+          echo "-  GET LATEST: Retrieved most recent version"
+          echo ""
+          echo "### Project Context"
+          echo "- Project: $KH_PROJECT"
+          echo "- Environment: $KH_ENVIRONMENT"

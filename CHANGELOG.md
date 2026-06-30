@@ -1,3 +1,51 @@
+## v1.14.1 (2026-06-30)
+
+### Maintenance
+* chore:Skip new files for kh public repo (3667b16)
+
+---
+
+## v1.14.0 (2026-06-30)
+
+### Features
+* add kv file backend fallback (b4e9ded)
+* Add delete all key-value pairs demonstration workflow (e5f11f1)
+* Add kh kv env and kh kv run demonstration workflow (82820c6)
+* Add --output json support to kh kv set command (abfda48)
+* Add encryption key generation and advanced KV features (dceca2c)
+* Expand demo-kv workflow with advanced KV features (71d9399)
+
+### Bug Fixes
+* use static license badge in README (c0cfcd7)
+* remove trailing newline in kv_backend_test.go (b993acb)
+* Correct license workflow to use actual CLI command syntax (4cdfacc)
+* Add --encrypt flag to kv get commands for decryption (e68ce33)
+* Redact plaintext sensitive values from workflow logs (8c5d30d)
+* Remove unsupported KV flags from demo workflow (14dad99)
+* Remove --output json flag from kv get command (516f012)
+* Remove explicit --workspace flag from kv commands (9760277)
+* Use correct workspace UUID variable and add error handling (5abb97d)
+* Stronger environment variable sanitization in all demo workflows (27f627e)
+* Sanitize environment variables in all demo workflows (a7374c5)
+* Correct CLI syntax in demo-kv workflow (daba2bd)
+* Remove special characters from workflow step names for YAML compatibility (2c444b8)
+
+### Maintenance
+* remove codecov and go report card badges (3f0857b)
+* chore(deps):(deps): bump github.com/spf13/pflag from 1.0.9 to 1.0.10 (7dd93c1)
+* chore(deps):(deps): bump github.com/spf13/cobra from 1.8.0 to 1.10.2 (7a05636)
+* make regression tests optional when snapshots unavailable (8ee59bd)
+* make snapshot artifact upload non-blocking (08acda1)
+* upgrade golangci-lint-action to v8 (3d1ce5d)
+* add dependabot and security scanning badges (668757e)
+* Add environment: demo to all demo workflows (898138e)
+* Add comprehensive CLI demo workflows (d338f18)
+
+### Documentation
+* Add verbose tutorial-style output to all demo workflows (235a57b)
+
+---
+
 ## v1.13.0 (2026-05-26)
 
 ### Features

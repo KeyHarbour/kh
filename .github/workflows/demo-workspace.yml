@@ -1,0 +1,130 @@
+name: Demo - Project & Workspace Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      list_environments:
+        description: 'Also list environments in workspace'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_PROJECT: ${{ vars.KH_PROJECT }}
+
+jobs:
+  demo-workspace:
+    environment: demo
+    name: Explore Account Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_PROJECT=$(echo "$KH_PROJECT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+          echo "KH_PROJECT=$KH_PROJECT" >> $GITHUB_ENV
+
+      - name: "Step 1 - List All Projects"
+        run: |
+          echo "Listing all projects in your account..."
+  echo ""
+  echo "About this demo:"
+  echo "  This workflow demonstrates resource discovery and navigation"
+  echo "  You will learn how to explore projects, workspaces, and environments"
+  echo ""
+          echo ""
+
+          ${{ env.CLI_PATH }} project list \
+            --output json > /tmp/projects.json
+
+          PROJ_COUNT=$(jq 'length' /tmp/projects.json)
+          echo "OK Found $PROJ_COUNT project(s)"
+          echo ""
+
+          jq -r '.[] | "\(.id | .[0:8]): \(.name) (type: \(.type), status: \(.status))"' /tmp/projects.json
+
+      - name: "Step 2 - Describe Current Project"
+        run: |
+          echo "Project: $KH_PROJECT"
+          echo ""
+
+          ${{ env.CLI_PATH }} project describe \
+            --project "$KH_PROJECT" \
+            --output json | jq '.'
+
+      - name: "Step 3 - List Workspaces in Project"
+        run: |
+          echo "Listing workspaces for project: $KH_PROJECT"
+          echo ""
+
+          ${{ env.CLI_PATH }} workspace list \
+            --project "$KH_PROJECT" \
+            --output json > /tmp/workspaces.json
+
+          WORKSPACE_COUNT=$(jq 'length' /tmp/workspaces.json)
+          echo "OK Found $WORKSPACE_COUNT workspace(s)"
+          echo ""
+
+          jq -r '.[] | "\(.id | .[0:8]): \(.name) (state_count: \(.state_count))"' /tmp/workspaces.json
+
+      - name: "Step 4 - Describe Current Workspace"
+        if: env.KH_ENVIRONMENT != ''
+        run: |
+          echo "Workspace: $KH_ENVIRONMENT"
+          echo ""
+
+          ${{ env.CLI_PATH }} workspace describe \
+            --workspace "$KH_ENVIRONMENT" \
+            --project "$KH_PROJECT" \
+            --output json | jq '.'
+
+      - name: "Step 5 - List Environments (Optional)"
+        if: ${{ inputs.list_environments == 'true' }}
+        run: |
+          if [ -z "$KH_ENVIRONMENT" ]; then
+            WORKSPACE=$(jq -r '.[0].id' /tmp/workspaces.json)
+          else
+            WORKSPACE="$KH_ENVIRONMENT"
+          fi
+
+          echo "Listing environments for workspace: $WORKSPACE"
+          echo ""
+
+          ${{ env.CLI_PATH }} workspace list-environments \
+            --workspace "$WORKSPACE" \
+            --project "$KH_PROJECT" \
+            --output json | jq '.' || echo "Note: Command may not be available"
+
+      - name:  Summary
+        if: always()
+        run: |
+          echo "## Project & Workspace Discovery"
+          echo ""
+          echo "### Exploration Results"
+          PROJ_COUNT=$(jq 'length' /tmp/projects.json 2>/dev/null || echo "?")
+          WORKSPACE_COUNT=$(jq 'length' /tmp/workspaces.json 2>/dev/null || echo "?")
+          echo "-  Projects: $PROJ_COUNT"
+          echo "-  Workspaces: $WORKSPACE_COUNT"
+          echo ""
+          echo "### Navigation"
+          echo "- Current Project: $KH_PROJECT"
+          echo "- Current Workspace: $KH_ENVIRONMENT"
+          echo ""
+          echo "### Useful Next Steps"
+          echo "- List states: \`kh tf state ls\`"
+          echo "- View workspace details: \`kh workspace describe\`"
+          echo "- Manage KV pairs: \`kh kv set/get/delete\`"

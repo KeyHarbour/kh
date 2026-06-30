@@ -1,0 +1,288 @@
+name: Demo - Delete All Key-Value Pairs
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deletion:
+        description: 'Confirm deletion of ALL keys (type "yes-delete-all")'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run mode (show what would be deleted)'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_WORKSPACE: ${{ vars.KH_WORKSPACE }}
+
+jobs:
+  delete-all-kv:
+    environment: demo
+    name: Delete All Key-Value Pairs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_WORKSPACE=$(echo "$KH_WORKSPACE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_WORKSPACE=$KH_WORKSPACE" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: Verify deletion confirmation
+        run: |
+          echo "=== SAFETY CHECK: Verifying Deletion Authorization ==="
+          echo ""
+          echo "Provided confirmation input: ${{ inputs.confirm_deletion }}"
+          echo ""
+
+          if [ "${{ inputs.confirm_deletion }}" != "yes-delete-all" ]; then
+            echo "ERROR: Invalid confirmation string"
+            echo "To delete ALL key-value pairs, you must provide exactly: yes-delete-all"
+            echo ""
+            echo "This workflow will DELETE ALL KEY-VALUE PAIRS in workspace:"
+            echo "  Workspace: $KH_WORKSPACE"
+            echo ""
+            echo "To proceed, re-run this workflow and provide:"
+            echo "  confirm_deletion = yes-delete-all"
+            exit 1
+          fi
+
+          echo "✓ Deletion confirmed with correct authorization string"
+          echo ""
+
+      - name: "Step 1 - List All Keys Before Deletion"
+        run: |
+          set -e
+          echo "=== STEP 1: Listing All Key-Value Pairs Before Deletion ==="
+          echo ""
+          echo "Workspace: $KH_WORKSPACE"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv ls --output json"
+          echo ""
+          echo "--- Current Keys ---"
+          ${{ env.CLI_PATH }} kv ls --output json | jq -r '.[] | .key' | tee /tmp/all_keys.txt
+          echo "--- End Keys ---"
+          echo ""
+
+          KEY_COUNT=$(wc -l < /tmp/all_keys.txt)
+          echo "Total keys found: $KEY_COUNT"
+          echo ""
+
+      - name: "Step 2 - Display Deletion Plan (Dry Run)"
+        run: |
+          set -e
+          echo "=== STEP 2: Deletion Plan ==="
+          echo ""
+
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "MODE: DRY RUN (no actual deletions)"
+          else
+            echo "MODE: REAL DELETION (keys will be permanently removed)"
+          fi
+          echo ""
+
+          echo "Keys to be deleted:"
+          echo "==================="
+          echo ""
+
+          if [ -f /tmp/all_keys.txt ]; then
+            COUNT=0
+            while IFS= read -r key; do
+              if [ -n "$key" ]; then
+                COUNT=$((COUNT + 1))
+                echo "  $COUNT. $key"
+              fi
+            done < /tmp/all_keys.txt
+            echo ""
+            echo "Total: $COUNT keys"
+          else
+            echo "No keys found"
+          fi
+          echo ""
+
+      - name: "Step 3 - Delete All Keys"
+        run: |
+          set -e
+          echo "=== STEP 3: Deleting All Key-Value Pairs ==="
+          echo ""
+
+          DRY_RUN="${{ inputs.dry_run }}"
+          DELETED_COUNT=0
+          FAILED_COUNT=0
+
+          if [ ! -f /tmp/all_keys.txt ]; then
+            echo "No keys to delete"
+            exit 0
+          fi
+
+          while IFS= read -r key; do
+            if [ -z "$key" ]; then
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "  [DRY RUN] Would delete: $key"
+              DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+              if ${{ env.CLI_PATH }} kv delete "$key" 2>/dev/null; then
+                echo "  ✓ Deleted: $key"
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+              else
+                echo "  ✗ Failed to delete: $key"
+                FAILED_COUNT=$((FAILED_COUNT + 1))
+              fi
+            fi
+          done < /tmp/all_keys.txt
+
+          echo ""
+          echo "Deletion Summary:"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  Keys that would be deleted: $DELETED_COUNT"
+          else
+            echo "  Keys successfully deleted: $DELETED_COUNT"
+            echo "  Keys failed to delete: $FAILED_COUNT"
+          fi
+          echo ""
+
+      - name: "Step 4 - Verify All Keys Deleted"
+        run: |
+          set -e
+          echo "=== STEP 4: Verification ==="
+          echo ""
+
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          echo "Checking remaining keys..."
+          echo ""
+          echo "Running command:"
+          echo "  kh kv ls --output json"
+          echo ""
+
+          REMAINING=$(${{ env.CLI_PATH }} kv ls --output json | jq 'length')
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN MODE: Not actually deleted"
+            echo "Remaining keys: $REMAINING (unchanged because it was a dry run)"
+          else
+            echo "--- Remaining Keys ---"
+            ${{ env.CLI_PATH }} kv ls --output json | jq -r '.[] | .key' || echo "(no keys)"
+            echo "--- End Keys ---"
+            echo ""
+
+            if [ "$REMAINING" = "0" ]; then
+              echo "✓ SUCCESS: All key-value pairs have been deleted"
+              echo "  Workspace is now empty"
+            else
+              echo "WARNING: $REMAINING keys still remain"
+              echo "  Some keys may not have been deleted"
+            fi
+          fi
+          echo ""
+
+      - name: "Step 5 - Deletion Patterns Reference"
+        run: |
+          echo "=== STEP 5: Different Deletion Patterns ==="
+          echo ""
+          echo "Pattern 1: Delete All Keys (this workflow)"
+          echo "  kh kv ls | jq -r '.[] | .key' | xargs -I {} kh kv delete {}"
+          echo ""
+
+          echo "Pattern 2: Delete Keys by Prefix"
+          echo "  kh kv ls | jq -r '.[] | select(.key | startswith(\"PREFIX_\")) | .key' | xargs -I {} kh kv delete {}"
+          echo ""
+
+          echo "Pattern 3: Delete Keys by Pattern"
+          echo "  kh kv ls | jq -r '.[] | select(.key | test(\"PATTERN\")) | .key' | xargs -I {} kh kv delete {}"
+          echo ""
+
+          echo "Pattern 4: Delete with Confirmation"
+          echo "  kh kv ls | jq -r '.[] | .key' | while read key; do"
+          echo "    read -p \"Delete \$key? (y/n) \" confirm"
+          echo "    [ \"\$confirm\" = \"y\" ] && kh kv delete \"\$key\""
+          echo "  done"
+          echo ""
+
+          echo "Pattern 5: Delete All but Keep Specific Keys"
+          echo "  kh kv ls | jq -r '.[] | .key' | grep -v '^KEEP_' | xargs -I {} kh kv delete {}"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================================="
+          echo "DELETE ALL KEY-VALUE PAIRS DEMO - COMPLETE"
+          echo "=========================================================="
+          echo ""
+
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "MODE: DRY RUN (no actual changes made)"
+            echo ""
+            echo "To perform ACTUAL deletion, re-run this workflow with:"
+            echo "  dry_run = false"
+            echo ""
+          else
+            echo "MODE: REAL DELETION (keys have been deleted)"
+            echo ""
+          fi
+
+          echo "SAFETY FEATURES:"
+          echo "  ✓ Requires explicit confirmation (yes-delete-all)"
+          echo "  ✓ Dry run mode available (default: enabled)"
+          echo "  ✓ Lists keys before deletion"
+          echo "  ✓ Verifies deletion completion"
+          echo "  ✓ Provides deletion patterns for different use cases"
+          echo ""
+
+          echo "DELETION PATTERNS AVAILABLE:"
+          echo "  1. Delete all keys (kh kv ls | xargs)"
+          echo "  2. Delete by prefix pattern"
+          echo "  3. Delete by regex pattern"
+          echo "  4. Delete with user confirmation"
+          echo "  5. Delete all except whitelisted keys"
+          echo ""
+
+          echo "USE CASES:"
+          echo "  - Environment cleanup/reset"
+          echo "  - Workspace teardown"
+          echo "  - Test data removal"
+          echo "  - Configuration purge"
+          echo "  - Start fresh deployment"
+          echo ""
+
+          echo "WARNINGS:"
+          echo "  ⚠ This action is PERMANENT"
+          echo "  ⚠ Deleted keys cannot be recovered"
+          echo "  ⚠ Use dry_run=true first to preview"
+          echo "  ⚠ Always backup important data before bulk deletion"
+          echo ""
+
+          echo "RECOVERY OPTIONS:"
+          echo "  - Use git to restore from previous backups"
+          echo "  - Use workspace versioning if available"
+          echo "  - Keep production data separate from test environments"
+          echo ""
+
+          echo "Next Steps:"
+          echo "  - Use demo-kv.yml to create new key-value pairs"
+          echo "  - Use demo-kv-env-run.yml to test env/run commands"
+          echo "  - Create isolated test workspaces for destructive tests"
+          echo ""

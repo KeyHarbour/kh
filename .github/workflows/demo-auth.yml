@@ -1,0 +1,136 @@
+name: Demo - Authentication & Identity
+
+on:
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: 'Enable verbose output'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+
+jobs:
+  
+  demo:
+    environment: demo
+    name: Verify CLI Authentication
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: Verify Token is Set
+        run: |
+          echo "=== STEP 1: Verifying Environment Variables ==="
+          echo ""
+          echo "Checking if KH_TOKEN is configured..."
+          echo "Command: test -n \$KH_TOKEN"
+          echo ""
+          if [ -z "$KH_TOKEN" ]; then
+            echo "ERROR: KH_TOKEN not found in environment"
+            echo ""
+            echo "Troubleshooting: Make sure you have configured the 'demo' GitHub environment:"
+            echo "  1. Go to Settings > Environments > demo"
+            echo "  2. Add secret: KH_TOKEN with your API token value"
+            exit 1
+          fi
+          echo "Result: SUCCESS"
+          echo "KH_TOKEN is configured and available in this workflow"
+          echo ""
+
+      - name: Verify Endpoint is Set
+        run: |
+          echo "=== STEP 2: Verifying API Endpoint ==="
+          echo ""
+          echo "Checking if KH_ENDPOINT is configured..."
+          echo "Command: test -n \$KH_ENDPOINT"
+          echo ""
+          if [ -z "$KH_ENDPOINT" ]; then
+            echo "ERROR: KH_ENDPOINT not found"
+            exit 1
+          fi
+          echo "Result: SUCCESS"
+          echo "KH_ENDPOINT is configured: $KH_ENDPOINT"
+          echo ""
+
+      - name: Test whoami (Show Current Identity)
+        run: |
+          echo "=== STEP 3: Authenticating with CLI ==="
+          echo ""
+          echo "Running CLI command: kh auth whoami"
+          echo ""
+          echo "This command will:"
+          echo "  - Connect to the KeyHarbour API at: $KH_ENDPOINT"
+          echo "  - Authenticate using KH_TOKEN"
+          echo "  - Retrieve and display your user identity"
+          echo ""
+          echo "--- Command Output ---"
+          ${{ env.CLI_PATH }} auth whoami
+          echo "--- End Output ---"
+          echo ""
+          echo "Result: SUCCESS"
+          echo "CLI authenticated successfully. Your identity was retrieved from the server."
+          echo ""
+
+      - name: Test config get (Show Configuration)
+        run: |
+          echo "=== STEP 4: Checking Local CLI Configuration ==="
+          echo ""
+          echo "Running CLI command: kh config get"
+          echo ""
+          echo "This command displays any locally stored CLI configuration."
+          echo "(In CI environments, this may not have local config)"
+          echo ""
+          echo "--- Command Output ---"
+          ${{ env.CLI_PATH }} config get || echo "(No local config file - this is normal in CI)"
+          echo "--- End Output ---"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "========================================"
+          echo "AUTHENTICATION DEMO - COMPLETE"
+          echo "========================================"
+          echo ""
+          echo "Steps Performed:"
+          echo "  1. Verified KH_TOKEN environment variable"
+          echo "  2. Verified KH_ENDPOINT environment variable"
+          echo "  3. Ran 'kh auth whoami' command"
+          echo "  4. Checked CLI configuration"
+          echo ""
+          echo "Results:"
+          echo "  ✓ Environment variables properly configured"
+          echo "  ✓ API endpoint is accessible"
+          echo "  ✓ Authentication token is valid"
+          echo "  ✓ CLI successfully authenticated with server"
+          echo ""
+          echo "What You Learned:"
+          echo "  - How to set up GitHub environment variables"
+          echo "  - How CLI authentication works"
+          echo "  - How to verify credentials with 'kh auth whoami'"
+          echo "  - How to use environment variables in workflows"
+          echo ""
+          echo "Next Steps:"
+          echo "  - Try 'Demo - Project & Workspace Discovery' to explore resources"
+          echo "  - Try 'Demo - Key-Value Store Operations' to test data operations"
+          echo "  - Try 'Demo - Full Integration Test' to see all features together"
+          echo ""

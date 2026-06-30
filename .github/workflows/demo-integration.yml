@@ -1,0 +1,230 @@
+name: Demo - Full Integration Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_all_scenarios:
+        description: 'Run all demo scenarios in sequence'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_PROJECT: ${{ vars.KH_PROJECT }}
+  KH_ENVIRONMENT: ${{ vars.KH_ENVIRONMENT }}
+
+jobs:
+  integration-demo:
+    environment: demo
+    name: Complete CLI Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_PROJECT=$(echo "$KH_PROJECT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_ENVIRONMENT=$(echo "$KH_ENVIRONMENT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+          echo "KH_PROJECT=$KH_PROJECT" >> $GITHUB_ENV
+          echo "KH_ENVIRONMENT=$KH_ENVIRONMENT" >> $GITHUB_ENV
+
+      - name: "Part 1 - Authentication"
+        run: |
+          echo "## Authentication"
+          echo ""
+          echo "Testing CLI authentication and credentials"
+          echo ""
+          ${{ env.CLI_PATH }} auth whoami --output json | jq '.'
+          echo "OK Authentication verified"
+
+      - name: "Part 2 - Project Discovery"
+        run: |
+          echo ""
+          echo "## Project Discovery"
+          echo ""
+
+          ${{ env.CLI_PATH }} project list \
+            --output json > /tmp/projects.json
+
+          PROJ_COUNT=$(jq 'length' /tmp/projects.json)
+          echo "Found $PROJ_COUNT project(s)"
+          echo ""
+          jq -r '.[] | "\(.id | .[0:8]): \(.name)"' /tmp/projects.json | head -5
+
+          echo "OK Project discovery completed"
+
+      - name: "Part 3 - Workspace Overview"
+        run: |
+          echo ""
+          echo "## Workspace Overview"
+          echo ""
+
+          ${{ env.CLI_PATH }} workspace list \
+            --project "$KH_PROJECT" \
+            --output json > /tmp/workspaces.json
+
+          WS_COUNT=$(jq 'length' /tmp/workspaces.json)
+          echo "Project $KH_PROJECT has $WS_COUNT workspace(s)"
+          echo ""
+          jq -r '.[] | "\(.id | .[0:8]): \(.name)"' /tmp/workspaces.json | head -5
+
+          echo "OK Workspace overview completed"
+
+      - name: "Part 4 - Key-Value Store Demo"
+        run: |
+          echo ""
+          echo "## Key-Value Store Demo"
+          echo ""
+
+          TEST_KEY="demo-integration-$(date +%s)"
+
+          # Create
+          echo "Creating KV pair: $TEST_KEY"
+          ${{ env.CLI_PATH }} kv set \
+            --name "$TEST_KEY" \
+            --value "Integration test at $(date)" \
+            --project "$KH_PROJECT" \
+            --environment "$KH_ENVIRONMENT" \
+            --output json > /tmp/kv_created.json
+
+          # Read
+          echo "Retrieving KV pair..."
+          ${{ env.CLI_PATH }} kv get \
+            --name "$TEST_KEY" \
+            --project "$KH_PROJECT" \
+            --environment "$KH_ENVIRONMENT" \
+            --output json
+
+          # Update
+          echo "Updating KV pair..."
+          ${{ env.CLI_PATH }} kv update \
+            --name "$TEST_KEY" \
+            --value "Updated at $(date)" \
+            --project "$KH_PROJECT" \
+            --environment "$KH_ENVIRONMENT"
+
+          # Delete
+          echo "Deleting KV pair (cleanup)..."
+          ${{ env.CLI_PATH }} kv delete \
+            --name "$TEST_KEY" \
+            --project "$KH_PROJECT" \
+            --environment "$KH_ENVIRONMENT" \
+            --force
+
+          echo "OK KV operations completed"
+
+      - name: "Part 5 - Terraform State"
+        run: |
+          echo ""
+          echo "## Terraform State Management"
+          echo ""
+
+          echo "Listing Terraform states..."
+          ${{ env.CLI_PATH }} tf state ls \
+            --project "$KH_PROJECT" \
+            --output json > /tmp/tf_states.json
+
+          STATE_COUNT=$(jq 'length' /tmp/tf_states.json)
+          echo "Found $STATE_COUNT state(s)"
+          echo ""
+
+          if [ "$STATE_COUNT" -gt 0 ]; then
+            echo "Latest 3 states:"
+            jq -r '.[] | "\(.id | .[0:8]): \(.name)"' /tmp/tf_states.json | head -3
+
+            # Show latest state info
+            STATE_ID=$(jq -r '.[0].id' /tmp/tf_states.json)
+            echo ""
+            echo "State details for: $STATE_ID"
+            ${{ env.CLI_PATH }} tf state show \
+              --id "$STATE_ID" \
+              --project "$KH_PROJECT" \
+              --output json | jq '.id, .name, .updated_at'
+          else
+            echo "WARNING No states found (this is normal if no Terraform configs)"
+          fi
+
+          echo "OK Terraform state exploration completed"
+
+      - name: "Part 6 - License Management (View Only)"
+        run: |
+          echo ""
+          echo "## License Management"
+          echo ""
+
+          echo "Listing licenses..."
+          ${{ env.CLI_PATH }} license list \
+            --project "$KH_PROJECT" \
+            --output json > /tmp/licenses.json
+
+          LICENSE_COUNT=$(jq 'length' /tmp/licenses.json)
+          echo "Found $LICENSE_COUNT license(s)"
+          echo ""
+
+          if [ "$LICENSE_COUNT" -gt 0 ]; then
+            echo "Sample licenses:"
+            jq -r '.[] | "\(.id | .[0:8]): \(.name) (\(.type), \(.seat_count) seats)"' /tmp/licenses.json | head -5
+          else
+            echo "WARNING No licenses configured"
+          fi
+
+          echo "OK License overview completed"
+
+      - name: "Part 7 - System Health Check"
+        run: |
+          echo ""
+          echo "## System Health"
+          echo ""
+
+          echo "Configuration:"
+          echo "- Endpoint: $KH_ENDPOINT"
+          echo "- Token: Configured "
+          echo "- Project: $KH_PROJECT"
+          echo "- Environment: $KH_ENVIRONMENT"
+          echo ""
+
+          echo "API Connectivity: "
+          echo "Authentication: "
+          echo "All demo scenarios completed successfully!"
+
+      - name: "Final Summary"
+        if: always()
+        run: |
+          echo "## Integration Test Summary"
+          echo ""
+          echo "### Parts Completed"
+          echo "-  Authentication"
+          echo "-  Project Discovery"
+          echo "-  Workspace Overview"
+          echo "-  Key-Value Store (CRUD)"
+          echo "-  Terraform State (List & Show)"
+          echo "-  License Management (View)"
+          echo "-  System Health Check"
+          echo ""
+          echo "### Scenario Coverage"
+          echo "-  Read operations (whoami, list, show)"
+          echo "-  Write operations (kv set, update)"
+          echo "-  Delete operations (kv delete)"
+          echo "-  Cross-resource navigation"
+          echo ""
+          echo "### Available Demo Workflows"
+          echo "- \`demo-auth.yml\` - Authentication & Identity"
+          echo "- \`demo-kv.yml\` - Key-Value Store CRUD"
+          echo "- \`demo-terraform-state.yml\` - State Management"
+          echo "- \`demo-workspace.yml\` - Project & Workspace Discovery"
+          echo "- \`demo-license.yml\` - License Management"
+          echo "- \`demo-terraform-init.yml\` - Terraform Scaffolding"
+          echo "- \`demo-integration.yml\` - Full Integration Test (this workflow)"

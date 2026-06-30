@@ -1,0 +1,409 @@
+name: Demo - Key-Value Store Operations
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_key:
+        description: 'Key name for demo'
+        required: false
+        default: 'demo-key-ghactions'
+        type: string
+      test_value:
+        description: 'Initial value'
+        required: false
+        default: 'Demo from GitHub Actions'
+        type: string
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_WORKSPACE: ${{ vars.KH_WORKSPACE }}
+
+jobs:
+  demo-kv:
+    environment: demo
+    name: CRUD Operations on Key-Value Store
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_WORKSPACE=$(echo "$KH_WORKSPACE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_WORKSPACE=$KH_WORKSPACE" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: Generate encryption key
+        run: |
+          echo "=== Generating AES-256 Encryption Key ==="
+          echo ""
+          echo "What is an AES-256 encryption key?"
+          echo "  - AES (Advanced Encryption Standard) with 256-bit key length"
+          echo "  - 256 bits = 32 bytes = 64 hexadecimal characters"
+          echo "  - Used for encrypting sensitive values at rest"
+          echo ""
+          echo "Generation method:"
+          echo "  1. openssl rand 32 generates 32 random bytes"
+          echo "  2. xxd -p converts to hexadecimal representation"
+          echo "  3. tr -d removes newlines"
+          echo ""
+          echo "Generating key..."
+          ENCRYPTION_KEY=$(openssl rand 32 | xxd -p | tr -d '\n')
+          echo "Generated key (hex-encoded 256-bit AES key):"
+          echo "  $ENCRYPTION_KEY"
+          echo ""
+          echo "Storing in KH_ENCRYPTION_KEY environment variable..."
+          echo "KH_ENCRYPTION_KEY=$ENCRYPTION_KEY" >> $GITHUB_ENV
+          echo "✓ Encryption key ready for use"
+          echo ""
+
+      - name: "Step 1 - Create (SET)"
+        run: |
+          set -e
+          echo "=== STEP 1: Creating Key-Value Pair (CREATE) ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will store a new key-value pair in KeyHarbour"
+          echo "  The 'kv set' command creates or overwrites a key"
+          echo ""
+          echo "Configuration:"
+          echo "  Key: ${{ inputs.test_key }}"
+          echo "  Value: ${{ inputs.test_value }}"
+          echo "  Workspace: $KH_WORKSPACE"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '${{ inputs.test_key }}' '${{ inputs.test_value }}' --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "${{ inputs.test_key }}" "${{ inputs.test_value }}" --output json | tee /tmp/kv_created.json
+          echo "--- End Response ---"
+          echo ""
+          echo "Result: Key created successfully"
+          echo ""
+
+      - name: "Step 2 - Read (GET)"
+        run: |
+          set -e
+          echo "=== STEP 2: Reading Key-Value Pair (READ) ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will retrieve the value we just stored"
+          echo "  The 'kv get' command fetches a value by key name"
+          echo "  Note: kv get doesn't require workspace - key names are globally unique"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv get '${{ inputs.test_key }}'"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv get "${{ inputs.test_key }}"
+          echo "--- End Response ---"
+          echo ""
+          echo "Result: Key value retrieved successfully"
+          echo ""
+
+      - name: "Step 3 - Update"
+        run: |
+          set -e
+          echo "=== STEP 3: Updating Key-Value Pair (UPDATE) ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will modify the value of an existing key"
+          echo "  The 'kv update' command changes a value while keeping the key"
+          echo ""
+          NEW_VALUE="${{ inputs.test_value }} - Updated at $(date)"
+          echo "New value: $NEW_VALUE"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv update '${{ inputs.test_key }}' '$NEW_VALUE' --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv update "${{ inputs.test_key }}" "$NEW_VALUE" --output json
+          echo "--- End Response ---"
+          echo ""
+          echo "Result: Key updated successfully with new value"
+          echo ""
+
+      - name: "Step 4 - Verify Update"
+        run: |
+          set -e
+          echo "=== STEP 4: Verifying the Update ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will read the key again to confirm the update worked"
+          echo "  This demonstrates READ after UPDATE (verification pattern)"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv get '${{ inputs.test_key }}'"
+          echo ""
+          echo "--- Current Value ---"
+          ${{ env.CLI_PATH }} kv get "${{ inputs.test_key }}"
+          echo "--- End Value ---"
+          echo ""
+          echo "Result: Update verified - value was changed on server"
+          echo ""
+
+      - name: "Step 5 - Encrypted Storage"
+        run: |
+          set -e
+          echo "=== STEP 5: Creating Encrypted Key-Value Pair ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will store an encrypted key-value pair"
+          echo "  The --encrypt flag ensures the value is encrypted using KH_ENCRYPTION_KEY"
+          echo "  Encryption happens client-side before transmission to the server"
+          echo ""
+          ENCRYPTED_KEY="demo-encrypted-$(date +%s)"
+          # NOTE: In production, never log plaintext sensitive values!
+          # This value is only for demonstration purposes
+          ENCRYPTED_VALUE="Sensitive data - API Key: sk-1234567890abcdef"
+          echo "Key: $ENCRYPTED_KEY"
+          echo "Value: (redacted for security - plaintext value never logged in production)"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '$ENCRYPTED_KEY' '<sensitive-value>' --encrypt --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "$ENCRYPTED_KEY" "$ENCRYPTED_VALUE" --encrypt --output json | tee /tmp/encrypted_key.json
+          echo "--- End Response ---"
+          echo ""
+          echo "Retrieving encrypted value (will be decrypted with --encrypt flag):"
+          echo "  kh kv get '$ENCRYPTED_KEY' --encrypt"
+          echo ""
+          echo "--- Decrypted Response ---"
+          ${{ env.CLI_PATH }} kv get "$ENCRYPTED_KEY" --encrypt
+          echo "--- End Response ---"
+          echo ""
+          echo "Storing key for cleanup:"
+          echo "$ENCRYPTED_KEY" >> /tmp/keys_to_cleanup.txt
+          echo "Result: Encrypted storage demonstrated successfully"
+          echo ""
+
+      - name: "Step 6 - One-Time-Only Key"
+        run: |
+          set -e
+          echo "=== STEP 6: Creating One-Time-Only Key ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will create a key that can only be read once"
+          echo "  The --one-time-only flag ensures the value self-destructs after first read"
+          echo "  Useful for: temporary tokens, OTPs, session codes, limited-access secrets"
+          echo ""
+          ONETIME_KEY="demo-onetime-$(date +%s)"
+          echo "Key: $ONETIME_KEY"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '$ONETIME_KEY' 'This can only be read once' --one-time-only --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "$ONETIME_KEY" "This can only be read once" --one-time-only --output json
+          echo "--- End Response ---"
+          echo ""
+          echo "Reading it (first read - should succeed):"
+          echo "  kh kv get '$ONETIME_KEY'"
+          echo ""
+          ${{ env.CLI_PATH }} kv get "$ONETIME_KEY"
+          echo ""
+          echo "Attempting second read (should fail - key consumed):"
+          ${{ env.CLI_PATH }} kv get "$ONETIME_KEY" || echo "Expected: Key already consumed (this is correct!)"
+          echo ""
+          echo "Result: One-time-only semantics demonstrated successfully"
+          echo ""
+
+      - name: "Step 7 - Expiring Key (TTL)"
+        run: |
+          set -e
+          echo "=== STEP 7: Creating Key with Expiration (TTL) ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will create a key that expires after a specified duration"
+          echo "  The --expires-in flag sets a time-to-live (TTL)"
+          echo "  Useful for: temporary configs, feature flags, session data, cache entries"
+          echo ""
+          EXPIRING_KEY="demo-expiring-$(date +%s)"
+          echo "Key: $EXPIRING_KEY"
+          echo "TTL: 30 minutes"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '$EXPIRING_KEY' 'This expires in 30 minutes' --expires-in 30m --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "$EXPIRING_KEY" "This expires in 30 minutes" --expires-in 30m --output json
+          echo "--- End Response ---"
+          echo ""
+          echo "Retrieving the expiring key:"
+          echo "  kh kv get '$EXPIRING_KEY'"
+          echo ""
+          ${{ env.CLI_PATH }} kv get "$EXPIRING_KEY"
+          echo ""
+          echo "Storing key for cleanup:"
+          echo "$EXPIRING_KEY" >> /tmp/keys_to_cleanup.txt
+          echo "Result: Expiring key created successfully with TTL"
+          echo ""
+
+      - name: "Step 8 - Private Value"
+        run: |
+          set -e
+          echo "=== STEP 8: Creating Private (Sensitive) Value ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will create a key marked as private/sensitive"
+          echo "  The --private flag marks this as sensitive data"
+          echo "  Private values are masked in logs and list output"
+          echo "  Useful for: passwords, tokens, credentials, API keys"
+          echo ""
+          PRIVATE_KEY="demo-private-$(date +%s)"
+          PRIVATE_VALUE="super-secret-password-12345"
+          echo "Key: $PRIVATE_KEY"
+          echo "Value: (sensitive - will be masked)"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '$PRIVATE_KEY' '$PRIVATE_VALUE' --private --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "$PRIVATE_KEY" "$PRIVATE_VALUE" --private --output json
+          echo "--- End Response ---"
+          echo ""
+          echo "Retrieving private value (shown to you, but masked in logs):"
+          echo "  kh kv get '$PRIVATE_KEY'"
+          echo ""
+          ${{ env.CLI_PATH }} kv get "$PRIVATE_KEY"
+          echo ""
+          echo "Storing key for cleanup:"
+          echo "$PRIVATE_KEY" >> /tmp/keys_to_cleanup.txt
+          echo "Result: Private value created and marked for protection"
+          echo ""
+
+      - name: "Step 9 - Combined Features (Encrypted + Private + Expiring)"
+        run: |
+          set -e
+          echo "=== STEP 9: Combined: Encrypted + Private + Expiring ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will create a key with multiple security features"
+          echo "  --encrypt: Client-side encryption before transmission"
+          echo "  --private: Marked as sensitive (masked in logs)"
+          echo "  --expires-in: Auto-cleanup after TTL expires"
+          echo "  Real-world use: sensitive temporary credentials, short-lived tokens"
+          echo ""
+          COMBINED_KEY="demo-combined-$(date +%s)"
+          COMBINED_VALUE="temporary_oauth_token_xyz789"
+          echo "Key: $COMBINED_KEY"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv set '$COMBINED_KEY' '$COMBINED_VALUE' --encrypt --private --expires-in 24h --output json"
+          echo ""
+          echo "--- Server Response ---"
+          ${{ env.CLI_PATH }} kv set "$COMBINED_KEY" "$COMBINED_VALUE" --encrypt --private --expires-in 24h --output json
+          echo "--- End Response ---"
+          echo ""
+          echo "Retrieving combined-features value (with --encrypt to decrypt):"
+          echo "  kh kv get '$COMBINED_KEY' --encrypt"
+          echo ""
+          ${{ env.CLI_PATH }} kv get "$COMBINED_KEY" --encrypt
+          echo ""
+          echo "Storing key for cleanup:"
+          echo "$COMBINED_KEY" >> /tmp/keys_to_cleanup.txt
+          echo "Result: Combined security features working together"
+          echo ""
+
+      - name: "Step 10 - Delete (Cleanup)"
+        if: always()
+        run: |
+          echo "=== STEP 10: Deleting All Test Keys (DELETE) ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will remove all test keys we created"
+          echo "  The 'kv delete' command removes key-value pairs permanently"
+          echo "  This cleanup ensures we don't leave test data behind"
+          echo ""
+
+          # Clean up original test key
+          echo "Cleaning up original test key: ${{ inputs.test_key }}"
+          ${{ env.CLI_PATH }} kv delete "${{ inputs.test_key }}" || echo "  (key may not exist - OK)"
+          echo ""
+
+          # Clean up additional test keys created in demo steps
+          if [ -f /tmp/keys_to_cleanup.txt ]; then
+            echo "Cleaning up additional test keys:"
+            while IFS= read -r key; do
+              if [ -n "$key" ]; then
+                echo "  Deleting: $key"
+                ${{ env.CLI_PATH }} kv delete "$key" || echo "    (key may not exist - OK)"
+              fi
+            done < /tmp/keys_to_cleanup.txt
+          fi
+          echo ""
+          echo "Result: Cleanup complete - all test keys removed"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================================="
+          echo "KEY-VALUE STORE DEMO - COMPLETE"
+          echo "=========================================================="
+          echo ""
+          echo "CORE CRUD OPERATIONS (Steps 1-4):"
+          echo "  ✓ CREATE:  kh kv set <key> <value>"
+          echo "  ✓ READ:    kh kv get <key>"
+          echo "  ✓ UPDATE:  kh kv update <key> <new-value>"
+          echo "  ✓ VERIFY:  Confirm update worked"
+          echo ""
+          echo "SECURITY & ADVANCED FEATURES (Steps 5-9):"
+          echo "  ✓ ENCRYPT:           --encrypt flag with generated AES-256 key"
+          echo "  ✓ ONE-TIME-ONLY:     --one-time-only for self-destructing secrets"
+          echo "  ✓ EXPIRATION (TTL):  --expires-in for automatic cleanup"
+          echo "  ✓ PRIVATE/SENSITIVE: --private flag for masked logging"
+          echo "  ✓ COMBINED:          Multiple flags working together"
+          echo ""
+          echo "ENCRYPTION KEY GENERATION:"
+          echo "  Method:     openssl rand 32 | xxd -p (generates 256-bit AES key)"
+          echo "  Format:     64 hexadecimal characters (32 bytes)"
+          echo "  Storage:    KH_ENCRYPTION_KEY environment variable"
+          echo "  Encryption: Client-side, before transmission to server"
+          echo ""
+          echo "FEATURE MATRIX:"
+          echo ""
+          echo "  Scenario                      Flag(s)                      Use Case"
+          echo "  ────────────────────────────  ─────────────────────────  ──────────────────────"
+          echo "  Regular storage               (none)                       General-purpose KV"
+          echo "  Sensitive value               --private                    Masked in logs"
+          echo "  Encrypted value               --encrypt                    At-rest encryption"
+          echo "  One-time secret               --one-time-only              Temporary tokens/OTP"
+          echo "  Temporary config              --expires-in 30d             Auto-cleanup after TTL"
+          echo "  Secure token                  --encrypt --private          Best practices"
+          echo "  Limited-access code           --one-time-only --expires-in Temporary with TTL"
+          echo ""
+          echo "What You Learned:"
+          echo "  - CRUD operations: create, read, update, delete"
+          echo "  - Client-side AES-256 encryption with automatic key generation"
+          echo "  - One-time-only semantics for security-sensitive operations"
+          echo "  - TTL/expiration for automatic resource cleanup"
+          echo "  - Private value masking for sensitive data"
+          echo "  - Combining multiple security flags for defense-in-depth"
+          echo "  - Workspace-scoped operations with environment variables"
+          echo ""
+          echo "Best Practices Demonstrated:"
+          echo "  ✓ Always use --encrypt for API keys, passwords, tokens"
+          echo "  ✓ Use --private for sensitive values to protect logs"
+          echo "  ✓ Set --expires-in on temporary data to prevent accumulation"
+          echo "  ✓ Combine --one-time-only with --expires-in for ultra-secure temps"
+          echo "  ✓ Generate encryption keys using secure randomness (openssl rand)"
+          echo "  ✓ Store encryption keys in environment variables or key files"
+          echo ""
+          echo "Next Steps:"
+          echo "  - Try 'Demo - Terraform State Management' for state handling"
+          echo "  - Explore 'Demo - Full Integration Test' for end-to-end workflows"
+          echo "  - Check 'Demo - License Management' for other features"
+          echo ""

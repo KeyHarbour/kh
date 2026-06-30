@@ -1,0 +1,172 @@
+name: Demo - Terraform Project Scaffolding
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name for Terraform config'
+        required: false
+        default: 'demo-infrastructure'
+        type: string
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      module:
+        description: 'Terraform module preset'
+        required: false
+        default: 'aws-vpc'
+        type: choice
+        options:
+          - aws-vpc
+          - aws-rds
+          - aws-s3
+          - gcp-compute
+          - azure-storage
+          - generic
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+
+jobs:
+  demo-init:
+    environment: demo
+    name: Scaffold Terraform Project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: "Step 1 - Create Temp Directory"
+        run: |
+          mkdir -p /tmp/demo-terraform
+          cd /tmp/demo-terraform
+          echo "PROJECT_DIR=/tmp/demo-terraform" >> $GITHUB_ENV
+          echo "OK Created working directory"
+
+      - name: "Step 2 - Scaffold Project"
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "Scaffolding Terraform project..."
+          echo ""
+          echo "This will generate a complete Terraform backend configuration:"
+          echo "  - backend.tf: Terraform backend definition"
+          echo "  - backend.hcl: Backend configuration values"
+          echo ""
+          echo "  Name: ${{ inputs.project_name }}"
+          echo "  Environment: ${{ inputs.environment }}"
+          echo "  Module: ${{ inputs.module }}"
+          echo ""
+
+          ${{ env.CLI_PATH }} tf init \
+            --name "${{ inputs.project_name }}" \
+            --env "${{ inputs.environment }}" \
+            --module "${{ inputs.module }}" \
+            --backend http
+
+          echo ""
+          echo "OK Project scaffolded successfully"
+
+      - name: "Step 3 - Show Generated Files"
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "Generated files:"
+          ls -lah
+          echo ""
+
+      - name: "Step 4 - Display backend.tf"
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f "backend.tf" ]; then
+            echo "### backend.tf"
+            echo '```hcl'
+            cat backend.tf
+            echo '```'
+          fi
+
+      - name: "Step 5 - Display backend.hcl"
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f "backend.hcl" ]; then
+            echo "### backend.hcl"
+            echo '```hcl'
+            cat backend.hcl
+            echo '```'
+          fi
+
+      - name: "Step 6 - Validate Configuration"
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "Validating backend configuration..."
+          echo ""
+
+          if [ -f "backend.tf" ]; then
+            echo "OK backend.tf is valid"
+            grep -q "terraform" backend.tf && echo "OK Contains terraform block"
+            grep -q "http" backend.tf && echo "OK Configured for HTTP backend"
+          fi
+
+          if [ -f "backend.hcl" ]; then
+            echo "OK backend.hcl is valid"
+            grep -q "address" backend.hcl && echo "OK Contains address configuration"
+          fi
+
+      - name: "Step 7 - Project Summary"
+        run: |
+          cd "$PROJECT_DIR"
+
+          echo "### Project Structure"
+          echo '```'
+          find . -type f -name "*.tf" -o -name "*.hcl" -o -name "*.json" | head -20
+          echo '```'
+
+      - name: "Step 8 - Cleanup"
+        if: always()
+        run: |
+          echo "Cleaning up temporary directory..."
+          rm -rf "$PROJECT_DIR"
+          echo "OK Cleanup complete"
+
+      - name:  Summary
+        if: always()
+        run: |
+          echo "## Terraform Project Scaffolding Demo"
+          echo ""
+          echo "### Configuration"
+          echo "- Project Name: ${{ inputs.project_name }}"
+          echo "- Environment: ${{ inputs.environment }}"
+          echo "- Module: ${{ inputs.module }}"
+          echo "- Backend: HTTP (KeyHarbour)"
+          echo ""
+          echo "### Generated Files"
+          echo "-  backend.tf"
+          echo "-  backend.hcl"
+          echo ""
+          echo "### Next Steps"
+          echo "1. Initialize Terraform: \`terraform init\`"
+          echo "2. Create resources as needed"
+          echo "3. Push state to KeyHarbour: \`kh tf sync\`"

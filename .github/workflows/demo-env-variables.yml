@@ -1,0 +1,396 @@
+name: Demo - Environment Variables Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      show_secrets:
+        description: 'Show masked secret values (for testing)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_WORKSPACE: ${{ vars.KH_WORKSPACE }}
+
+jobs:
+  demo-env:
+    environment: demo
+    name: Environment Variables Management
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_WORKSPACE=$(echo "$KH_WORKSPACE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_WORKSPACE=$KH_WORKSPACE" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: "Scenario 1 - GitHub Actions Native Env Vars"
+        run: |
+          set -e
+          echo "=== SCENARIO 1: GitHub Actions Native Environment Variables ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  GitHub Actions provides environment variables through:"
+          echo "  - vars.*: Public repository variables (unmasked in logs)"
+          echo "  - secrets.*: Private secrets (masked with *** in logs)"
+          echo "  - GitHub context variables (GITHUB_*, runner info)"
+          echo ""
+          echo "Built-in GitHub Variables:"
+          echo "  GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "  GITHUB_REF: $GITHUB_REF"
+          echo "  GITHUB_SHA: $GITHUB_SHA"
+          echo "  RUNNER_OS: $RUNNER_OS"
+          echo "  RUNNER_ARCH: $RUNNER_ARCH"
+          echo ""
+          echo "Custom Variables from env block:"
+          echo "  KH_ENDPOINT: $KH_ENDPOINT"
+          echo "  KH_WORKSPACE: (configured)"
+          echo "  KH_TOKEN: (configured)"
+          echo ""
+          echo "Best Practices:"
+          echo "  ✓ Use secrets.* for sensitive values (passwords, tokens, keys)"
+          echo "  ✓ Use vars.* for non-sensitive configuration"
+          echo "  ✓ Never commit secrets to version control"
+          echo "  ✓ Rotate secrets regularly"
+          echo ""
+
+      - name: "Scenario 2 - Exporting Variables Between Steps"
+        run: |
+          set -e
+          echo "=== SCENARIO 2: Exporting Variables Between Steps ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  GitHub Actions steps are isolated - to share variables between steps:"
+          echo "  - Use >> \$GITHUB_ENV to export to subsequent steps"
+          echo "  - Variables persist for the entire job"
+          echo ""
+          echo "Step 1: Create and export a variable"
+          MY_CUSTOM_VAR="generated_$(date +%s)"
+          echo "MY_CUSTOM_VAR=$MY_CUSTOM_VAR" >> $GITHUB_ENV
+          echo "  Created: MY_CUSTOM_VAR=$MY_CUSTOM_VAR"
+          echo ""
+
+      - name: "Scenario 2 (continued) - Using exported variable"
+        run: |
+          echo "Step 2: Use the variable exported from previous step"
+          echo "  MY_CUSTOM_VAR=$MY_CUSTOM_VAR"
+          echo "  ✓ Variable successfully passed between steps!"
+          echo ""
+          echo "Mechanism:"
+          echo "  1. First step writes to \$GITHUB_ENV file"
+          echo "  2. GitHub Actions reads the file after step completes"
+          echo "  3. Variable is available to all subsequent steps"
+          echo ""
+
+      - name: "Scenario 3 - .env File Pattern"
+        run: |
+          set -e
+          echo "=== SCENARIO 3: Loading Variables from .env File ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  Common pattern: store env vars in a .env file"
+          echo "  Useful for: local development, test configurations"
+          echo ""
+
+          # Create a sample .env file
+          cat > .env.demo << 'EOF'
+          APP_NAME=KeyHarbour Demo
+          APP_ENV=staging
+          LOG_LEVEL=debug
+          DATABASE_HOST=db.internal
+          DATABASE_PORT=5432
+          FEATURE_FLAG_NEW_UI=true
+          CACHE_TTL=3600
+          EOF
+
+          echo "Created .env.demo file:"
+          echo "---"
+          cat .env.demo
+          echo "---"
+          echo ""
+
+          echo "Loading variables from .env file:"
+          set +e  # Don't fail if sourcing has issues
+          export $(grep -v '^#' .env.demo | xargs)
+          set -e
+          echo "  APP_NAME=$APP_NAME"
+          echo "  APP_ENV=$APP_ENV"
+          echo "  LOG_LEVEL=$LOG_LEVEL"
+          echo "  DATABASE_HOST=$DATABASE_HOST"
+          echo "  DATABASE_PORT=$DATABASE_PORT"
+          echo "  FEATURE_FLAG_NEW_UI=$FEATURE_FLAG_NEW_UI"
+          echo "  CACHE_TTL=$CACHE_TTL"
+          echo ""
+          echo "Pattern:"
+          echo "  source .env              # Load all variables"
+          echo "  export \$(cat .env)       # Export them"
+          echo "  export \$(grep -v '^#' .env | xargs)  # Skip comments"
+          echo ""
+
+      - name: "Scenario 4 - Conditional Environment Setup"
+        run: |
+          set -e
+          echo "=== SCENARIO 4: Conditional Environment Setup ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  Different environments (dev, staging, prod) need different configs"
+          echo "  Pattern: load environment-specific configuration conditionally"
+          echo ""
+
+          ENVIRONMENT="staging"
+          echo "Current environment: $ENVIRONMENT"
+          echo ""
+
+          # Load environment-specific config
+          case "$ENVIRONMENT" in
+            dev)
+              API_URL="http://localhost:3000"
+              LOG_LEVEL="debug"
+              CACHE_ENABLED=false
+              ;;
+            staging)
+              API_URL="https://staging.api.keyharbour.ca"
+              LOG_LEVEL="info"
+              CACHE_ENABLED=true
+              ;;
+            prod)
+              API_URL="https://api.keyharbour.ca"
+              LOG_LEVEL="warn"
+              CACHE_ENABLED=true
+              ;;
+          esac
+
+          echo "Configuration loaded for $ENVIRONMENT:"
+          echo "  API_URL: $API_URL"
+          echo "  LOG_LEVEL: $LOG_LEVEL"
+          echo "  CACHE_ENABLED: $CACHE_ENABLED"
+          echo ""
+
+          # Export for use in subsequent steps
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+          echo "LOG_LEVEL=$LOG_LEVEL" >> $GITHUB_ENV
+          echo "CACHE_ENABLED=$CACHE_ENABLED" >> $GITHUB_ENV
+          echo ""
+
+          echo "Pattern:"
+          echo "  case \$ENVIRONMENT in"
+          echo "    dev)   export API_URL=http://localhost:3000 ;;"
+          echo "    staging) export API_URL=https://staging.api... ;;"
+          echo "    prod)   export API_URL=https://api.keyharbour.ca ;;"
+          echo "  esac"
+          echo ""
+
+      - name: "Scenario 5 - Using KH CLI with Environment Variables"
+        run: |
+          set -e
+          echo "=== SCENARIO 5: Using KeyHarbour CLI with Environment Variables ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  KeyHarbour CLI respects these environment variables:"
+          echo "    KH_ENDPOINT    - API endpoint URL"
+          echo "    KH_TOKEN       - Authentication token"
+          echo "    KH_WORKSPACE   - Default workspace UUID"
+          echo "    KH_PROJECT     - Default project UUID"
+          echo "    KH_OUTPUT      - Default output format (json|table)"
+          echo "    KH_ENCRYPTION_KEY - Encryption key for encrypted values"
+          echo "    KH_DEBUG       - Enable debug logging"
+          echo ""
+
+          echo "Current environment:"
+          echo "  KH_ENDPOINT: $KH_ENDPOINT"
+          echo "  KH_WORKSPACE: $KH_WORKSPACE"
+          echo "  KH_TOKEN: (configured)"
+          echo ""
+
+          echo "Testing CLI authentication using env vars:"
+          ${{ env.CLI_PATH }} auth whoami
+          echo ""
+
+          echo "Benefits of environment variables:"
+          echo "  ✓ No need to pass flags for every command"
+          echo "  ✓ Consistent configuration across commands"
+          echo "  ✓ Easy to switch environments (CI vs local)"
+          echo "  ✓ Secure: sensitive values not in command history"
+          echo ""
+
+      - name: "Scenario 6 - Environment Variable Validation"
+        run: |
+          set -e
+          echo "=== SCENARIO 6: Validating Required Environment Variables ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  Best practice: validate that required env vars are set"
+          echo "  This prevents cryptic errors later in the workflow"
+          echo ""
+
+          # Validation function
+          require_env() {
+            local var_name="$1"
+            local var_value="${!var_name}"
+            if [ -z "$var_value" ]; then
+              echo "ERROR: Required environment variable not set: $var_name"
+              return 1
+            fi
+            return 0
+          }
+
+          echo "Validating required variables:"
+          require_env "KH_ENDPOINT" && echo "  ✓ KH_ENDPOINT is set"
+          require_env "KH_TOKEN" && echo "  ✓ KH_TOKEN is set"
+          require_env "KH_WORKSPACE" && echo "  ✓ KH_WORKSPACE is set"
+          echo ""
+
+          echo "Pattern:"
+          echo "  require_env() {"
+          echo "    local var=\"\$1\""
+          echo "    [ -z \"\${!var}\" ] && echo \"ERROR: \$var not set\" && return 1"
+          echo "  }"
+          echo ""
+
+          echo "Usage:"
+          echo "  require_env KH_TOKEN || exit 1"
+          echo ""
+
+      - name: "Scenario 7 - Masking Sensitive Output"
+        run: |
+          set -e
+          echo "=== SCENARIO 7: Masking Sensitive Values in Output ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  When you need to log a value that might be sensitive:"
+          echo "  - GitHub Actions auto-masks values from secrets.* in logs"
+          echo "  - Manual masking: use add-mask in the GitHub workflow"
+          echo "  - Best practice: don't log sensitive values at all"
+          echo ""
+
+          # Generate a token (for demo only - not real)
+          DEMO_TOKEN="ghp_abc123def456ghi789"
+
+          echo "Adding manual mask for demo token..."
+          echo "::add-mask::$DEMO_TOKEN"
+
+          echo "Attempting to log masked token:"
+          echo "Token value: $DEMO_TOKEN (will show as *** in logs)"
+          echo ""
+
+          echo "Best Practices:"
+          echo "  ✓ Use secrets.* for sensitive values (auto-masked)"
+          echo "  ✓ Use ::add-mask:: for manual masking"
+          echo "  ✓ Redact sensitive values from logs manually"
+          echo "  ✓ Never commit secrets to version control"
+          echo "  ✓ Review logs before sharing with team"
+          echo ""
+
+      - name: "Scenario 8 - Environment Variable Inheritance"
+        run: |
+          set -e
+          echo "=== SCENARIO 8: Environment Variable Scope & Inheritance ==="
+          echo ""
+          echo "About this scenario:"
+          echo "  Environment variables have different scopes in GitHub Actions:"
+          echo "  - Workflow level (env:) - all steps in all jobs"
+          echo "  - Job level (jobs.<id>.env) - all steps in that job only"
+          echo "  - Step level (steps.<id>.env) - only that step"
+          echo ""
+
+          echo "Variable scopes:"
+          echo ""
+          echo "1. WORKFLOW LEVEL (all jobs see this):"
+          echo "   env:"
+          echo "     KH_ENDPOINT: \${{ vars.KH_ENDPOINT }}"
+          echo ""
+          echo "2. JOB LEVEL (only this job):"
+          echo "   jobs:"
+          echo "     demo-env:"
+          echo "       env:"
+          echo "         MY_JOB_VAR: value"
+          echo ""
+          echo "3. STEP LEVEL (only this step):"
+          echo "   - name: Step Name"
+          echo "     env:"
+          echo "       MY_STEP_VAR: value"
+          echo "     run: echo \$MY_STEP_VAR"
+          echo ""
+
+          echo "Current scope demonstration:"
+          echo "  - KH_ENDPOINT: Available (workflow level) = $KH_ENDPOINT"
+          echo "  - API_URL: Available (exported to GITHUB_ENV) = $API_URL"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================================="
+          echo "ENVIRONMENT VARIABLES DEMO - COMPLETE"
+          echo "=========================================================="
+          echo ""
+          echo "SCENARIOS COVERED:"
+          echo ""
+          echo "1. GitHub Actions Native Env Vars"
+          echo "   - vars.* (public), secrets.* (masked)"
+          echo "   - Built-in GITHUB_* variables"
+          echo ""
+          echo "2. Exporting Variables Between Steps"
+          echo "   - Using >> \$GITHUB_ENV to share state"
+          echo ""
+          echo "3. .env File Pattern"
+          echo "   - Loading from configuration files"
+          echo "   - export \$(grep ...) pattern"
+          echo ""
+          echo "4. Conditional Environment Setup"
+          echo "   - Environment-specific configurations"
+          echo "   - Case statements for dev/staging/prod"
+          echo ""
+          echo "5. KeyHarbour CLI Environment Variables"
+          echo "   - KH_ENDPOINT, KH_TOKEN, KH_WORKSPACE"
+          echo "   - How CLI respects environment"
+          echo ""
+          echo "6. Environment Variable Validation"
+          echo "   - Checking required variables early"
+          echo "   - Preventing cryptic errors"
+          echo ""
+          echo "7. Masking Sensitive Values"
+          echo "   - Auto-masking from secrets.*"
+          echo "   - Manual masking with ::add-mask::"
+          echo ""
+          echo "8. Variable Scope & Inheritance"
+          echo "   - Workflow/job/step level scopes"
+          echo "   - Variable visibility rules"
+          echo ""
+          echo "BEST PRACTICES LEARNED:"
+          echo "  ✓ Use secrets.* for sensitive values (auto-masked)"
+          echo "  ✓ Use vars.* for non-sensitive configuration"
+          echo "  ✓ Validate required env vars early in workflow"
+          echo "  ✓ Export variables via \$GITHUB_ENV for step sharing"
+          echo "  ✓ Use environment-specific configs (dev/staging/prod)"
+          echo "  ✓ Never log plaintext sensitive values"
+          echo "  ✓ Use .env files for complex configurations"
+          echo "  ✓ Document required environment variables"
+          echo ""
+          echo "REAL-WORLD PATTERNS:"
+          echo "  - Load secrets from GitHub environment"
+          echo "  - Use conditional setup for multi-env deployments"
+          echo "  - Validate critical env vars before operations"
+          echo "  - Pass computed values between steps via GITHUB_ENV"
+          echo "  - Mask sensitive values in logs"
+          echo ""
+          echo "Next Steps:"
+          echo "  - Try 'Demo - Key-Value Store Operations' to use env vars with KV"
+          echo "  - Explore 'Demo - Terraform State Management' for state configs"
+          echo "  - Check 'Demo - Full Integration Test' for combined workflows"
+          echo ""

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,6 +25,8 @@ import (
 type kvCmdOpts struct {
 	project           string
 	workspace         string
+	backend           string
+	kvFile            string
 	encrypt           bool
 	encryptionKeyFile string
 }
@@ -43,6 +46,8 @@ Commands that operate on the workspace collection (ls, set) require --workspace
 	}
 	cmd.PersistentFlags().StringVar(&opts.project, "project", "", "Project UUID (or KH_PROJECT)")
 	cmd.PersistentFlags().StringVar(&opts.workspace, "workspace", "", "Workspace UUID (or KH_WORKSPACE)")
+	cmd.PersistentFlags().StringVar(&opts.backend, "kv-backend", "", "KV backend: auto|remote|file (or KH_KV_BACKEND)")
+	cmd.PersistentFlags().StringVar(&opts.kvFile, "kv-file", "", "Path to local KV file when using --kv-backend file (or KH_KV_FILE)")
 	cmd.PersistentFlags().BoolVar(&opts.encrypt, "encrypt", false, "Encrypt/decrypt values using KH_ENCRYPTION_KEY from the environment")
 	cmd.PersistentFlags().StringVar(&opts.encryptionKeyFile, "encryption-key-file", "", "Path to a file containing the hex-encoded 256-bit AES key (or KH_ENCRYPTION_KEY_FILE)")
 
@@ -57,13 +62,69 @@ Commands that operate on the workspace collection (ls, set) require --workspace
 	return cmd
 }
 
-func (o *kvCmdOpts) resolve(cfg config.Config) (workspaceUUID string, err error) {
+func (o *kvCmdOpts) resolveBackendMode(cfg config.Config, stderr io.Writer) (string, error) {
+	mode := strings.TrimSpace(strings.ToLower(o.backend))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("KH_KV_BACKEND")))
+	}
+	if mode == "" {
+		mode = kvBackendAuto
+	}
+
+	switch mode {
+	case kvBackendAuto:
+		if strings.TrimSpace(cfg.Endpoint) != "" {
+			return kvBackendRemote, nil
+		}
+		fmt.Fprintln(stderr, "warning: KH_ENDPOINT is not configured; using file KV backend")
+		return kvBackendFile, nil
+	case kvBackendRemote:
+		if strings.TrimSpace(cfg.Endpoint) == "" {
+			return "", kherrors.ErrConfigLoad.New("remote KV backend selected but endpoint is missing; set KH_ENDPOINT or use --kv-backend file")
+		}
+		return kvBackendRemote, nil
+	case kvBackendFile:
+		return kvBackendFile, nil
+	default:
+		return "", kherrors.ErrInvalidValue.Newf("invalid KV backend %q: expected auto, remote, or file", mode)
+	}
+}
+
+func (o *kvCmdOpts) resolveKVFilePath() string {
+	if o.kvFile != "" {
+		return o.kvFile
+	}
+	if v := os.Getenv("KH_KV_FILE"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".kh/kv-store.json"
+	}
+	return filepath.Join(home, ".kh", "kv-store.json")
+}
+
+func (o *kvCmdOpts) resolveStore(cfg config.Config, stderr io.Writer) (string, kvStore, error) {
+	mode, err := o.resolveBackendMode(cfg, stderr)
+	if err != nil {
+		return "", nil, err
+	}
+	if mode == kvBackendFile {
+		return mode, &fileKVStore{path: o.resolveKVFilePath()}, nil
+	}
+	return mode, &remoteKVStore{client: khclient.New(cfg)}, nil
+}
+
+func (o *kvCmdOpts) resolveWorkspace(cfg config.Config, mode string) (workspaceUUID string, err error) {
 	workspaceRef := o.workspace
 	if workspaceRef == "" {
 		workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 	}
 	if workspaceRef == "" {
 		return "", kherrors.ErrMissingFlag.New("--workspace is required (or set KH_WORKSPACE)")
+	}
+	if mode == kvBackendFile {
+		return workspaceRef, nil
 	}
 
 	client := khclient.New(cfg)
@@ -170,15 +231,18 @@ Examples:
   kh kv ls --workspace <uuid> -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			workspaceUUID, err := opts.resolve(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			client := khclient.New(cfg)
+			workspaceUUID, err := opts.resolveWorkspace(cfg, mode)
+			if err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			items, err := client.ListKeyValues(ctx, workspaceUUID)
+			items, err := store.ListKeyValues(ctx, workspaceUUID)
 			if err != nil {
 				return err
 			}
@@ -257,11 +321,21 @@ Examples:
 				return kherrors.ErrMissingFlag.New("--private is not valid for 'get'; use --reveal to show masked values")
 			}
 			cfg, _ := config.LoadWithEnv()
-			client := khclient.New(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			workspaceUUID := ""
+			if mode == kvBackendFile {
+				workspaceUUID, err = opts.resolveWorkspace(cfg, mode)
+				if err != nil {
+					return err
+				}
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			kv, err := client.GetKeyValue(ctx, args[0])
+			kv, err := store.GetKeyValue(ctx, workspaceUUID, args[0])
 			if err != nil {
 				return err
 			}
@@ -331,11 +405,21 @@ Examples:
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			client := khclient.New(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			workspaceUUID := ""
+			if mode == kvBackendFile {
+				workspaceUUID, err = opts.resolveWorkspace(cfg, mode)
+				if err != nil {
+					return err
+				}
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			kv, err := client.GetKeyValue(ctx, args[0])
+			kv, err := store.GetKeyValue(ctx, workspaceUUID, args[0])
 			if err != nil {
 				return err
 			}
@@ -384,6 +468,7 @@ func newKVSetCmd(opts *kvCmdOpts) *cobra.Command {
 	var expiresAt string
 	var expiresIn string
 	var valueFile string
+	var format string
 	cmd := &cobra.Command{
 		Use:   "set <key> [value]",
 		Short: "Create a new key/value in a workspace",
@@ -431,11 +516,14 @@ Examples:
 			}
 
 			cfg, _ := config.LoadWithEnv()
-			workspaceUUID, err := opts.resolve(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			client := khclient.New(cfg)
+			workspaceUUID, err := opts.resolveWorkspace(cfg, mode)
+			if err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
@@ -471,14 +559,22 @@ Examples:
 				req.ExpiresAt = &expiresAt
 			}
 
-			if err := client.CreateKeyValue(ctx, workspaceUUID, req); err != nil {
+			if err := store.CreateKeyValue(ctx, workspaceUUID, req); err != nil {
 				var apiErr khclient.APIError
 				if errors.As(err, &apiErr) && apiErr.StatusCode == 422 {
-					if _, getErr := client.GetKeyValue(ctx, args[0]); getErr == nil {
+					if _, getErr := store.GetKeyValue(ctx, workspaceUUID, args[0]); getErr == nil {
 						return kherrors.ErrResourceConflict.Newf("key %q already exists — use 'kh kv update %s --value <value>' to change it", args[0], args[0])
 					}
 				}
 				return err
+			}
+
+			printer := output.Printer{Format: pick(format, outputFormat), W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(map[string]string{
+					"key":    args[0],
+					"status": "created",
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Key %q created.\n", args[0])
 			return nil
@@ -489,6 +585,7 @@ Examples:
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "Expiry date/time (ISO 8601)")
 	cmd.Flags().StringVar(&expiresIn, "expires-in", "", "Expiry as a duration from now (e.g. 1y, 30d, 4h, 30m)")
 	cmd.Flags().StringVar(&valueFile, "value-file", "", "Read value from a file instead of a positional argument")
+	cmd.Flags().StringVarP(&format, "output", "o", "", "Output format: table|json")
 	return cmd
 }
 
@@ -560,7 +657,17 @@ Examples:
 				value = args[1]
 			}
 			cfg, _ := config.LoadWithEnv()
-			client := khclient.New(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			workspaceUUID := ""
+			if mode == kvBackendFile {
+				workspaceUUID, err = opts.resolveWorkspace(cfg, mode)
+				if err != nil {
+					return err
+				}
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
@@ -596,7 +703,7 @@ Examples:
 				req.OneTimeOnly = &oneTimeOnly
 			}
 
-			updateErr := client.UpdateKeyValue(ctx, args[0], req)
+			updateErr := store.UpdateKeyValue(ctx, workspaceUUID, args[0], req)
 			if updateErr == nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "Key %q updated.\n", args[0])
 				return nil
@@ -610,7 +717,7 @@ Examples:
 					workspaceRef = config.FromEnvOr(cfg, "KH_WORKSPACE", "")
 				}
 				if workspaceRef != "" {
-					workspaceUUID, rerr := opts.resolve(cfg)
+					workspaceUUID, rerr := opts.resolveWorkspace(cfg, mode)
 					if rerr != nil {
 						return rerr
 					}
@@ -625,7 +732,7 @@ Examples:
 					if expiresAt != "" {
 						createReq.ExpiresAt = &expiresAt
 					}
-					if cerr := client.CreateKeyValue(ctx, workspaceUUID, createReq); cerr != nil {
+					if cerr := store.CreateKeyValue(ctx, workspaceUUID, createReq); cerr != nil {
 						return cerr
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "Key %q created.\n", args[0])
@@ -647,7 +754,7 @@ Examples:
 
 // ── delete ────────────────────────────────────────────────────────────────────
 
-func newKVDeleteCmd(_ *kvCmdOpts) *cobra.Command {
+func newKVDeleteCmd(opts *kvCmdOpts) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "delete <key>",
@@ -668,11 +775,21 @@ Examples:
 				return nil
 			}
 			cfg, _ := config.LoadWithEnv()
-			client := khclient.New(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+			workspaceUUID := ""
+			if mode == kvBackendFile {
+				workspaceUUID, err = opts.resolveWorkspace(cfg, mode)
+				if err != nil {
+					return err
+				}
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
-			if err := client.DeleteKeyValue(ctx, args[0]); err != nil {
+			if err := store.DeleteKeyValue(ctx, workspaceUUID, args[0]); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Key %q deleted.\n", args[0])
@@ -759,11 +876,14 @@ Examples:
   kh kv env --workspace prod --environment staging`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			workspaceUUID, err := opts.resolve(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			client := khclient.New(cfg)
+			workspaceUUID, err := opts.resolveWorkspace(cfg, mode)
+			if err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
@@ -772,7 +892,7 @@ Examples:
 				return err
 			}
 
-			pairs := resolveKVPairs(cmd, client, ctx, workspaceUUID, prefix, environment, encKey)
+			pairs := resolveKVPairs(cmd, store, ctx, workspaceUUID, prefix, environment, encKey)
 			out := cmd.OutOrStdout()
 			for _, p := range pairs {
 				// Single-quote the value and escape any embedded single quotes.
@@ -827,11 +947,14 @@ Examples:
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.LoadWithEnv()
-			workspaceUUID, err := opts.resolve(cfg)
+			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			client := khclient.New(cfg)
+			workspaceUUID, err := opts.resolveWorkspace(cfg, mode)
+			if err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 
@@ -842,7 +965,7 @@ Examples:
 
 			// Start from the current process environment.
 			env := os.Environ()
-			for _, p := range resolveKVPairs(cmd, client, ctx, workspaceUUID, prefix, environment, encKey) {
+			for _, p := range resolveKVPairs(cmd, store, ctx, workspaceUUID, prefix, environment, encKey) {
 				env = append(env, p.Name+"="+p.Value)
 			}
 

@@ -1,0 +1,383 @@
+name: Demo - KV Env & Run Commands
+
+on:
+  workflow_dispatch:
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_WORKSPACE: ${{ vars.KH_WORKSPACE }}
+
+jobs:
+  demo-kv-env-run:
+    environment: demo
+    name: KV Env & Run Demonstrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_WORKSPACE=$(echo "$KH_WORKSPACE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_WORKSPACE=$KH_WORKSPACE" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+
+      - name: "Step 1 - Setup Test Environment Variables"
+        run: |
+          set -e
+          echo "=== STEP 1: Setting up Test Environment Variables in KV Store ==="
+          echo ""
+          echo "About this step:"
+          echo "  We will create environment variables in the KeyHarbour KV store"
+          echo "  These will be used by 'kh kv env' and 'kh kv run' commands"
+          echo ""
+
+          # Create environment variables in KV store
+          echo "Creating environment variables..."
+          echo ""
+
+          ${{ env.CLI_PATH }} kv set "APP_NAME" "KeyHarbour Demo App" --output json
+          echo "  ✓ APP_NAME created"
+
+          ${{ env.CLI_PATH }} kv set "APP_VERSION" "1.2.3" --output json
+          echo "  ✓ APP_VERSION created"
+
+          ${{ env.CLI_PATH }} kv set "DATABASE_URL" "postgresql://localhost:5432/demo_db" --output json
+          echo "  ✓ DATABASE_URL created"
+
+          ${{ env.CLI_PATH }} kv set "API_PORT" "3000" --output json
+          echo "  ✓ API_PORT created"
+
+          ${{ env.CLI_PATH }} kv set "DEBUG_MODE" "true" --output json
+          echo "  ✓ DEBUG_MODE created"
+
+          ${{ env.CLI_PATH }} kv set "LOG_LEVEL" "debug" --output json
+          echo "  ✓ LOG_LEVEL created"
+
+          echo ""
+          echo "Storing keys for cleanup:"
+          echo "APP_NAME" >> /tmp/kv_env_keys.txt
+          echo "APP_VERSION" >> /tmp/kv_env_keys.txt
+          echo "DATABASE_URL" >> /tmp/kv_env_keys.txt
+          echo "API_PORT" >> /tmp/kv_env_keys.txt
+          echo "DEBUG_MODE" >> /tmp/kv_env_keys.txt
+          echo "LOG_LEVEL" >> /tmp/kv_env_keys.txt
+          echo ""
+
+      - name: "Step 2 - List All Environment Variables"
+        run: |
+          set -e
+          echo "=== STEP 2: Listing All Environment Variables in Workspace ==="
+          echo ""
+          echo "About this step:"
+          echo "  Use 'kh kv ls' to view all key-value pairs in the workspace"
+          echo "  These pairs represent application environment variables"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv ls --output json | jq '.'"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} kv ls --output json | jq '.'
+          echo "--- End Response ---"
+          echo ""
+
+      - name: "Step 3 - Use 'kv env' to Load as Shell Environment"
+        run: |
+          set -e
+          echo "=== STEP 3: Using 'kh kv env' to Load Variables ==="
+          echo ""
+          echo "About this command:"
+          echo "  'kh kv env' exports all KV pairs as shell environment variables"
+          echo "  Output format is suitable for: source, eval, or .env files"
+          echo "  Useful for loading app configuration from KeyHarbour"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv env"
+          echo ""
+          echo "--- Output (env format) ---"
+          ${{ env.CLI_PATH }} kv env | head -20
+          echo "--- End Output ---"
+          echo ""
+          echo "Use cases for 'kh kv env':"
+          echo "  1. source <(kh kv env)           # Load into current shell"
+          echo "  2. eval \$(kh kv env)             # Evaluate and export"
+          echo "  3. kh kv env > .env               # Save to .env file"
+          echo "  4. export \$(kh kv env | xargs)   # Export all variables"
+          echo ""
+
+      - name: "Step 4 - Load Variables and Verify"
+        run: |
+          set -e
+          echo "=== STEP 4: Loading and Verifying Environment Variables ==="
+          echo ""
+          echo "About this step:"
+          echo "  Load all variables from KeyHarbour and verify they're accessible"
+          echo "  This demonstrates the full workflow of exporting and using vars"
+          echo ""
+
+          # Load all environment variables from KeyHarbour
+          export $({{ env.CLI_PATH }} kv env | xargs)
+
+          echo "Loaded environment variables:"
+          echo "  APP_NAME: $APP_NAME"
+          echo "  APP_VERSION: $APP_VERSION"
+          echo "  DATABASE_URL: $DATABASE_URL"
+          echo "  API_PORT: $API_PORT"
+          echo "  DEBUG_MODE: $DEBUG_MODE"
+          echo "  LOG_LEVEL: $LOG_LEVEL"
+          echo ""
+          echo "✓ All variables successfully loaded and accessible"
+          echo ""
+
+      - name: "Step 5 - Use 'kv run' to Execute Command with Environment"
+        run: |
+          set -e
+          echo "=== STEP 5: Using 'kh kv run' to Execute Commands ==="
+          echo ""
+          echo "About this command:"
+          echo "  'kh kv run' executes a command with all KV pairs as environment variables"
+          echo "  The command runs in a subprocess with full KV environment"
+          echo "  Perfect for: application startup, testing, deployments"
+          echo ""
+          echo "Running command:"
+          echo "  kh kv run -- printenv | grep -E '(APP|DATABASE|API|DEBUG|LOG)'"
+          echo ""
+          echo "--- Output ---"
+          ${{ env.CLI_PATH }} kv run -- printenv | grep -E '(APP|DATABASE|API|DEBUG|LOG)' || echo "  (no matching vars or command failed)"
+          echo "--- End Output ---"
+          echo ""
+          echo "Use cases for 'kh kv run':"
+          echo "  1. Start applications:"
+          echo "     kh kv run -- node server.js"
+          echo "     kh kv run -- python manage.py runserver"
+          echo "     kh kv run -- ./app --config-from-env"
+          echo ""
+          echo "  2. Run build scripts:"
+          echo "     kh kv run -- npm run build"
+          echo "     kh kv run -- make deploy"
+          echo ""
+          echo "  3. Execute tests:"
+          echo "     kh kv run -- pytest tests/"
+          echo "     kh kv run -- npm test"
+          echo ""
+          echo "  4. Run migrations:"
+          echo "     kh kv run -- rails db:migrate"
+          echo "     kh kv run -- alembic upgrade head"
+          echo ""
+
+      - name: "Step 6 - Run Script with KV Environment"
+        run: |
+          set -e
+          echo "=== STEP 6: Running a Script with KV Environment Variables ==="
+          echo ""
+          echo "About this step:"
+          echo "  Create and execute a script that uses KV environment variables"
+          echo "  Demonstrates real-world application startup patterns"
+          echo ""
+
+          # Create a demo application script
+          cat > /tmp/demo_app.sh << 'SCRIPT'
+          #!/bin/bash
+          echo "Starting Application with KV Environment Variables"
+          echo "=================================================="
+          echo ""
+          echo "Application Configuration:"
+          echo "  Name:        $APP_NAME"
+          echo "  Version:     $APP_VERSION"
+          echo "  Port:        $API_PORT"
+          echo "  Database:    $DATABASE_URL"
+          echo "  Debug:       $DEBUG_MODE"
+          echo "  Log Level:   $LOG_LEVEL"
+          echo ""
+          echo "Validation:"
+
+          # Validate required variables
+          [ -n "$APP_NAME" ] && echo "  ✓ APP_NAME is set" || echo "  ✗ APP_NAME is missing"
+          [ -n "$APP_VERSION" ] && echo "  ✓ APP_VERSION is set" || echo "  ✗ APP_VERSION is missing"
+          [ -n "$DATABASE_URL" ] && echo "  ✓ DATABASE_URL is set" || echo "  ✗ DATABASE_URL is missing"
+          [ -n "$API_PORT" ] && echo "  ✓ API_PORT is set" || echo "  ✗ API_PORT is missing"
+
+          echo ""
+          echo "Starting application..."
+          echo "  Listening on port $API_PORT"
+          echo "  Debug mode: $DEBUG_MODE"
+          echo ""
+          echo "(In a real scenario, this would start your app server)"
+          SCRIPT
+
+          chmod +x /tmp/demo_app.sh
+
+          echo "Script created: /tmp/demo_app.sh"
+          echo ""
+          echo "Running script with 'kh kv run':"
+          echo "  kh kv run -- /tmp/demo_app.sh"
+          echo ""
+          echo "--- Script Output ---"
+          ${{ env.CLI_PATH }} kv run -- /tmp/demo_app.sh
+          echo "--- End Output ---"
+          echo ""
+
+      - name: "Step 7 - Create .env File from KV Store"
+        run: |
+          set -e
+          echo "=== STEP 7: Creating .env File from KV Store ==="
+          echo ""
+          echo "About this step:"
+          echo "  Export all KV pairs to a .env file for local development"
+          echo "  Enables: source .env / load from file in applications"
+          echo ""
+
+          # Create .env file from KV store
+          ${{ env.CLI_PATH }} kv env > /tmp/.env.keyharbour
+
+          echo "Generated .env file:"
+          echo "---"
+          cat /tmp/.env.keyharbour
+          echo "---"
+          echo ""
+
+          echo "Usage patterns:"
+          echo ""
+          echo "1. Load in shell:"
+          echo "   source /tmp/.env.keyharbour"
+          echo "   echo \$APP_NAME  # KeyHarbour Demo App"
+          echo ""
+          echo "2. Load in Python:"
+          echo "   from dotenv import load_dotenv"
+          echo "   load_dotenv('.env.keyharbour')"
+          echo ""
+          echo "3. Load in Node.js:"
+          echo "   require('dotenv').config({ path: '.env.keyharbour' })"
+          echo ""
+          echo "4. Use in Docker:"
+          echo "   docker run --env-file /tmp/.env.keyharbour myapp:latest"
+          echo ""
+
+      - name: "Step 8 - Advanced: Filtered Environment Export"
+        run: |
+          set -e
+          echo "=== STEP 8: Filtered Environment Variables ==="
+          echo ""
+          echo "About this step:"
+          echo "  Sometimes you only need specific environment variables"
+          echo "  Can filter by prefix or pattern before passing to application"
+          echo ""
+
+          echo "All KV pairs (via kh kv env):"
+          ${{ env.CLI_PATH }} kv env
+          echo ""
+
+          echo "Filter example:"
+          echo "  Get only DATABASE_* and API_* variables:"
+          ${{ env.CLI_PATH }} kv env | grep -E '(DATABASE|API)_' || echo "  (no matching vars)"
+          echo ""
+
+          echo "Filter pattern ideas:"
+          echo "  - SERVICE_*    # Service-specific config"
+          echo "  - DATABASE_*   # Database configuration"
+          echo "  - API_*        # API settings"
+          echo "  - FEATURE_*    # Feature flags"
+          echo "  - LOG_*        # Logging configuration"
+          echo ""
+
+      - name: "Step 9 - Cleanup"
+        if: always()
+        run: |
+          set -e
+          echo "=== STEP 9: Cleanup ==="
+          echo ""
+          echo "Removing test environment variables..."
+          echo ""
+
+          if [ -f /tmp/kv_env_keys.txt ]; then
+            while IFS= read -r key; do
+              if [ -n "$key" ]; then
+                ${{ env.CLI_PATH }} kv delete "$key" || echo "  (key may not exist)"
+              fi
+            done < /tmp/kv_env_keys.txt
+            echo "✓ All test keys removed"
+          fi
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================================="
+          echo "KV ENV & RUN DEMO - COMPLETE"
+          echo "=========================================================="
+          echo ""
+          echo "COMMANDS DEMONSTRATED:"
+          echo ""
+          echo "1. kh kv env"
+          echo "   Purpose: Export all KV pairs as environment variables"
+          echo "   Output:  KEY=value format (shell-compatible)"
+          echo "   Usage:   source <(kh kv env)"
+          echo "            export \$(kh kv env | xargs)"
+          echo "            kh kv env > .env"
+          echo ""
+          echo "2. kh kv run <command>"
+          echo "   Purpose: Execute command with all KV pairs in environment"
+          echo "   Usage:   kh kv run -- node server.js"
+          echo "            kh kv run -- npm test"
+          echo "            kh kv run -- ./app"
+          echo ""
+          echo "REAL-WORLD USE CASES:"
+          echo ""
+          echo "Application Startup:"
+          echo "  kh kv run -- gunicorn app:app"
+          echo "  kh kv run -- npm start"
+          echo "  kh kv run -- python manage.py runserver"
+          echo ""
+          echo "CI/CD Deployments:"
+          echo "  kh kv env > .env.production"
+          echo "  kh kv run -- ./deploy.sh"
+          echo ""
+          echo "Local Development:"
+          echo "  source <(kh kv env)"
+          echo "  docker-compose up"
+          echo ""
+          echo "Testing:"
+          echo "  kh kv run -- pytest tests/"
+          echo "  kh kv run -- npm test"
+          echo ""
+          echo "Database Operations:"
+          echo "  kh kv run -- rails db:migrate"
+          echo "  kh kv run -- alembic upgrade head"
+          echo ""
+          echo "BEST PRACTICES:"
+          echo "  ✓ Use kh kv env for shell integration"
+          echo "  ✓ Use kh kv run for application execution"
+          echo "  ✓ Export to .env for version control (with .gitignore)"
+          echo "  ✓ Use selective filters for sensitive deployments"
+          echo "  ✓ Validate required variables before running"
+          echo "  ✓ Use --encrypt for sensitive KV pairs"
+          echo "  ✓ Document required environment variables in README"
+          echo ""
+          echo "INTEGRATION PATTERNS:"
+          echo ""
+          echo "1. GitHub Actions:"
+          echo "   kh kv env >> \$GITHUB_ENV"
+          echo "   kh kv run -- npm run deploy"
+          echo ""
+          echo "2. Docker:"
+          echo "   kh kv env > .env"
+          echo "   docker build --build-arg-file .env ."
+          echo ""
+          echo "3. Local Development:"
+          echo "   source <(kh kv env)"
+          echo "   npm start"
+          echo ""
+          echo "Next Steps:"
+          echo "  - Try 'Demo - Key-Value Store Operations' for CRUD operations"
+          echo "  - Explore 'Demo - Full Integration Test' for complete workflows"
+          echo ""

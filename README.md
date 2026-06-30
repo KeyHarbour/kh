@@ -1,5 +1,11 @@
 # KeyHarbour CLI (`kh`)
 
+[![Go CI](https://github.com/KeyHarbour/cli/actions/workflows/go-ci.yml/badge.svg?branch=main)](https://github.com/KeyHarbour/cli/actions/workflows/go-ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KeyHarbour/cli?sort=semver)](https://github.com/KeyHarbour/cli/releases)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/KeyHarbour/cli/blob/main/LICENSE)
+[![Security Scanning](https://github.com/KeyHarbour/cli/actions/workflows/go-ci.yml/badge.svg?branch=main&event=push)](https://github.com/KeyHarbour/cli/security)
+[![Dependabot enabled](https://img.shields.io/badge/Dependabot-enabled-025e8c?logo=dependabot)](https://github.com/KeyHarbour/cli/blob/main/.github/dependabot.yml)
+
 The official command-line interface for KeyHarbour, a secure, self-hosted Terraform backend and state management platform.
 
 ## Command Structure

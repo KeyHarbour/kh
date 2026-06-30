@@ -1,0 +1,240 @@
+name: Demo - License Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      license_name:
+        description: 'License name for demo'
+        required: false
+        default: 'GitHub-Actions-Demo-License'
+        type: string
+      license_type:
+        description: 'License type (SaaS, Perpetual, Subscription)'
+        required: false
+        default: 'SaaS'
+        type: choice
+        options:
+          - SaaS
+          - Perpetual
+          - Subscription
+          - Trial
+      initial_seats:
+        description: 'Initial number of seats'
+        required: false
+        default: '5'
+        type: string
+
+env:
+  KH_ENDPOINT: ${{ vars.KH_ENDPOINT }}
+  KH_TOKEN: ${{ secrets.KH_TOKEN }}
+  KH_PROJECT: ${{ vars.KH_PROJECT }}
+
+jobs:
+  demo-license:
+    environment: demo
+    name: License CRUD Operations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "CLI_PATH=$(pwd)/bin/kh" >> $GITHUB_ENV
+
+      - name: Sanitize environment variables
+        run: |
+          # Remove all control characters and whitespace
+          KH_ENDPOINT=$(echo "$KH_ENDPOINT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_TOKEN=$(echo "$KH_TOKEN" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          KH_PROJECT=$(echo "$KH_PROJECT" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "KH_ENDPOINT=$KH_ENDPOINT" >> $GITHUB_ENV
+          echo "KH_TOKEN=$KH_TOKEN" >> $GITHUB_ENV
+          echo "KH_PROJECT=$KH_PROJECT" >> $GITHUB_ENV
+
+      - name: "Step 1 - List Existing Licenses"
+        run: |
+          set -e
+          echo "=== STEP 1: Listing All Licenses ==="
+          echo ""
+          echo "This demo covers license management:"
+          echo "  - View existing licenses"
+          echo "  - Create new license records"
+          echo "  - Update license properties (seats, dates, etc)"
+          echo "  - Delete licenses (cleanup)"
+          echo ""
+          echo "Running command:"
+          echo "  kh license ls --output json"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license ls --output json | tee /tmp/licenses_before.json
+          echo "--- End Response ---"
+          echo ""
+
+          LICENSE_COUNT=$(jq 'length' /tmp/licenses_before.json 2>/dev/null || echo "0")
+          echo "Found $LICENSE_COUNT existing license(s)"
+          echo ""
+
+      - name: "Step 2 - Create License"
+        run: |
+          set -e
+          echo "=== STEP 2: Creating License ==="
+          echo ""
+          echo "Running command:"
+          echo "  kh license create '${{ inputs.license_name }}' \\"
+          echo "    --short-name 'DEMO' \\"
+          echo "    --owner 'KeyHarbour Demo' \\"
+          echo "    --vendor 'Demo Vendor' \\"
+          echo "    --tier '${{ inputs.license_type }}' \\"
+          echo "    --seats '${{ inputs.initial_seats }}'"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license create "${{ inputs.license_name }}" \
+            --short-name "DEMO" \
+            --owner "KeyHarbour Demo" \
+            --vendor "Demo Vendor" \
+            --tier "${{ inputs.license_type }}" \
+            --seats "${{ inputs.initial_seats }}" | tee /tmp/create_response.txt
+          echo "--- End Response ---"
+          echo ""
+
+          # Extract UUID from response
+          LICENSE_UUID=$(grep -oP 'uuid: \K[a-f0-9-]+' /tmp/create_response.txt | head -1)
+          echo "License UUID: $LICENSE_UUID"
+          echo "$LICENSE_UUID" > /tmp/license_uuid.txt
+          echo ""
+
+      - name: "Step 3 - Retrieve License Details"
+        run: |
+          set -e
+          echo "=== STEP 3: Retrieving License Details ==="
+          echo ""
+
+          LICENSE_UUID=$(cat /tmp/license_uuid.txt)
+          echo "Running command:"
+          echo "  kh license show '$LICENSE_UUID'"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license show "$LICENSE_UUID"
+          echo "--- End Response ---"
+          echo ""
+
+      - name: "Step 4 - Update License (Increase Seats)"
+        run: |
+          set -e
+          echo "=== STEP 4: Updating License (Increase Seats) ==="
+          echo ""
+
+          LICENSE_UUID=$(cat /tmp/license_uuid.txt)
+          NEW_SEATS=$(({{ inputs.initial_seats }} + 5))
+
+          echo "Running command:"
+          echo "  kh license update '$LICENSE_UUID' --seats '$NEW_SEATS'"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license update "$LICENSE_UUID" --seats "$NEW_SEATS"
+          echo "--- End Response ---"
+          echo ""
+
+      - name: "Step 5 - Verify Update"
+        run: |
+          set -e
+          echo "=== STEP 5: Verifying Update ==="
+          echo ""
+
+          LICENSE_UUID=$(cat /tmp/license_uuid.txt)
+          echo "Running command:"
+          echo "  kh license show '$LICENSE_UUID'"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license show "$LICENSE_UUID"
+          echo "--- End Response ---"
+          echo ""
+          echo "✓ Update verified"
+          echo ""
+
+      - name: "Step 6 - Delete License (Cleanup)"
+        if: always()
+        run: |
+          set -e
+          echo "=== STEP 6: Deleting License (Cleanup) ==="
+          echo ""
+
+          if [ -f /tmp/license_uuid.txt ]; then
+            LICENSE_UUID=$(cat /tmp/license_uuid.txt)
+            echo "Running command:"
+            echo "  kh license delete '$LICENSE_UUID'"
+            echo ""
+            ${{ env.CLI_PATH }} license delete "$LICENSE_UUID" || echo "Note: License may already be deleted"
+            echo ""
+            echo "✓ Cleanup complete"
+          else
+            echo "No license UUID found to cleanup"
+          fi
+          echo ""
+
+      - name: "Step 7 - Verify Cleanup"
+        if: always()
+        run: |
+          set -e
+          echo "=== STEP 7: Verifying Cleanup ==="
+          echo ""
+          echo "Listing all licenses after cleanup..."
+          echo ""
+          echo "Running command:"
+          echo "  kh license ls"
+          echo ""
+          echo "--- Response ---"
+          ${{ env.CLI_PATH }} license ls | tee /tmp/licenses_after.json
+          echo "--- End Response ---"
+          echo ""
+          echo "✓ Cleanup verification complete"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "LICENSE MANAGEMENT DEMO - COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "CRUD Operations Demonstrated:"
+          echo ""
+          echo "1. LIST (kh license ls)"
+          echo "   View all licenses in the system"
+          echo ""
+          echo "2. CREATE (kh license create <name>)"
+          echo "   Required flags:"
+          echo "     --short-name    License abbreviation"
+          echo "     --owner         License owner"
+          echo "     --vendor        Software vendor"
+          echo "   Optional flags:"
+          echo "     --tier          License edition/tier"
+          echo "     --seats         Number of seats"
+          echo "     --renewal-date  Renewal date (YYYY-MM-DD)"
+          echo "     --unit-cost     Cost per seat"
+          echo ""
+          echo "3. READ (kh license show <uuid>)"
+          echo "   Retrieve detailed license information"
+          echo ""
+          echo "4. UPDATE (kh license update <uuid>)"
+          echo "   Modify license properties"
+          echo "   Can update: name, owner, vendor, seats, tier, status, etc"
+          echo ""
+          echo "5. DELETE (kh license delete <uuid>)"
+          echo "   Remove a license record"
+          echo ""
+          echo "Use Cases for License Management:"
+          echo "  - Track software licenses and entitlements"
+          echo "  - Monitor license usage and seat counts"
+          echo "  - Manage license renewals and expiration dates"
+          echo "  - Integrate with cost tracking systems"
+          echo "  - AI Token budgets (seats = token limit)"
+          echo ""
+          echo "Next Steps:"
+          echo "  - Try 'Demo - Key-Value Store Operations' for data storage"
+          echo "  - Explore 'Demo - KV Env & Run' for environment integration"
+          echo "  - Check 'Demo - Full Integration Test' for complete workflow"
+          echo ""
