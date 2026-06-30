@@ -37,6 +37,10 @@ PRIVATE_PATHS=(
   ".github/workflows/integration-snapshot.yml"
   ".github/workflows/integration-regression.yml"
   ".github/workflows/integration-diagnostics.yml"
+  "prompts"
+  "scripts/seed-demo.sh"
+  "scripts/sync-public.sh"
+  ".github/copilot-instructions.md"
 )
 
 # ── Sanity checks ─────────────────────────────────────────────────────────────
