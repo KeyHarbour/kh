@@ -1,3 +1,10 @@
+## v1.13.1 (2026-06-30)
+
+### Maintenance
+* sync public release v1.14.1 (61c5e41)
+
+---
+
 ## v1.14.1 (2026-06-30)
 
 ### Maintenance
