@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -92,11 +93,12 @@ func (c *Client) do(ctx context.Context, method, p string, q url.Values, body an
 			logging.Debugf("HTTP status %d for %s %s", resp.StatusCode, method, req.URL.String())
 		}
 		if shouldRetryStatus(resp.StatusCode) {
-			lastErr = fmt.Errorf("temporary status: %s", resp.Status)
-			resp.Body.Close()
 			if attempt == attempts-1 {
-				return nil, lastErr
+				return nil, parseAPIError(resp)
 			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("temporary status: %s", resp.Status)
 			time.Sleep(c.retryDelay(attempt))
 			continue
 		}
@@ -146,7 +148,17 @@ func (c *Client) newReq(ctx context.Context, method, p string, q url.Values, bod
 	if err != nil {
 		return nil, err
 	}
-	u.Path = path.Join(u.Path, p)
+
+	// Preserve already-escaped path segments in p (e.g. %20, %2F) without
+	// triggering an extra escaping pass that would produce %2520/%252F.
+	rawPath := path.Join(u.EscapedPath(), p)
+	decodedPath, decErr := url.PathUnescape(rawPath)
+	if decErr == nil {
+		u.Path = decodedPath
+		u.RawPath = rawPath
+	} else {
+		u.Path = path.Join(u.Path, p)
+	}
 	u.RawQuery = q.Encode()
 
 	var req *http.Request

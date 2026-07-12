@@ -61,7 +61,20 @@ build-cross:
 
 release-local: build-cross
 	# run goreleaser in snapshot mode to produce dist/ (requires goreleaser installed)
-	goreleaser release --snapshot --rm-dist
+	goreleaser release --snapshot --clean
+
+# Bump version, commit, and open a sync PR on KeyHarbour/kh.
+# Usage: make release          (auto-detect bump from commits)
+#        make release V=1.8.0  (explicit version)
+release:
+	@./scripts/bump-version.sh $(if $(V),$(V),)
+	@echo "Review CHANGELOG.md, then press Enter to commit and sync (Ctrl-C to abort)." && read _
+	git add VERSION CHANGELOG.md
+	git commit -m "chore: bump version to v$$(cat VERSION)"
+	git tag "v$$(cat VERSION)"
+	git push
+	git push origin "v$$(cat VERSION)"
+	./scripts/sync-public.sh sync/v$$(cat VERSION)
 
 # Bump version, commit, and open a sync PR on KeyHarbour/kh.
 # Usage: make release          (auto-detect bump from commits)

@@ -58,6 +58,13 @@ Environment variables:
 
 	// Configure debug logging prior to any subcommand execution
 	cmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// Apply KH_OUTPUT env var only when --output was not explicitly passed.
+		if !cmd.Root().PersistentFlags().Changed("output") {
+			if v := os.Getenv("KH_OUTPUT"); v != "" {
+				outputFormat = v
+			}
+		}
+
 		// If --version was passed, print version and exit immediately.
 		if showVersion {
 			if outputFormat == "json" {
@@ -77,12 +84,6 @@ Environment variables:
 			}
 		}
 		logging.SetDebug(debug)
-		// Apply KH_OUTPUT env var only when --output was not explicitly passed.
-		if !cmd.Root().PersistentFlags().Changed("output") {
-			if v := os.Getenv("KH_OUTPUT"); v != "" {
-				outputFormat = v
-			}
-		}
 		// Warn when TLS verification is disabled so it is never silent.
 		if v := os.Getenv("KH_INSECURE"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is disabled (KH_INSECURE)")
@@ -171,10 +172,14 @@ func classifyError(err error) *kherrors.KHError {
 			return kherrors.ErrTokenInvalid.Wrap(msg, err)
 		case apiErr.StatusCode == 403:
 			return kherrors.ErrForbidden.Wrap(msg, err)
+		case apiErr.StatusCode == 400 || apiErr.StatusCode == 422:
+			return kherrors.ErrInvalidValue.Wrap(msg, err)
 		case apiErr.StatusCode == 404:
 			return kherrors.ErrNotFound.Wrap(msg, err)
 		case apiErr.StatusCode == 409 || apiErr.StatusCode == 423:
 			return kherrors.ErrStateLocked.Wrap(msg, err)
+		case apiErr.StatusCode == 429:
+			return kherrors.ErrAPIError.Wrap(msg, err)
 		case apiErr.StatusCode >= 500:
 			return kherrors.ErrAPIError.Wrap(msg, err)
 		}
