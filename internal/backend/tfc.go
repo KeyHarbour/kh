@@ -166,9 +166,9 @@ func (r *TFCReader) ListAllWorkspaces(ctx context.Context) ([]TFCWorkspace, erro
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("tfc list workspaces: %s", resp.Status)
 		}
 
@@ -188,8 +188,10 @@ func (r *TFCReader) ListAllWorkspaces(ctx context.Context) ([]TFCWorkspace, erro
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			_ = resp.Body.Close()
 			return nil, err
 		}
+		_ = resp.Body.Close()
 
 		for _, ws := range out.Data {
 			allWorkspaces = append(allWorkspaces, TFCWorkspace{
