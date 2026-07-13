@@ -42,7 +42,10 @@ func TestClientDo_FinalRetryReturnsAPIErrorBody(t *testing.T) {
 		RetryWait: 0,
 	}
 
-	_, err := c.do(context.Background(), http.MethodGet, "/health", nil, nil, nil)
+	resp, err := c.do(context.Background(), http.MethodGet, "/health", nil, nil, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err == nil {
 		t.Fatal("expected final retry to return an error")
 	}
