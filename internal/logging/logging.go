@@ -4,20 +4,21 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
-var enabled bool
+var enabled atomic.Bool
 
 // SetDebug enables or disables debug logging globally.
-func SetDebug(on bool) { enabled = on }
+func SetDebug(on bool) { enabled.Store(on) }
 
 // Enabled reports whether debug logging is enabled.
-func Enabled() bool { return enabled }
+func Enabled() bool { return enabled.Load() }
 
 // Debugf prints a formatted debug message to stderr when enabled.
 func Debugf(format string, args ...any) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	ts := time.Now().Format(time.RFC3339)
@@ -26,7 +27,7 @@ func Debugf(format string, args ...any) {
 
 // Debug prints a debug message to stderr when enabled.
 func Debug(args ...any) {
-	if !enabled {
+	if !enabled.Load() {
 		return
 	}
 	ts := time.Now().Format(time.RFC3339)

@@ -21,7 +21,7 @@ package kherrors
 // │ KH-NF-001    │ not-found  │  1   │ The requested resource does not exist          │ Verify the UUID or name and check it exists   │
 // │ KH-CONF-001  │ conflict   │  6   │ State lock held by another process             │ Wait or force-unlock with kh tf unlock        │
 // │ KH-PART-001  │ partial    │  2   │ Some operations in a batch failed              │ Inspect failure details and retry failed items│
-// │ KH-INT-001   │ internal   │  1   │ Unexpected internal error                      │ Report at github.com/keyharbour/cli/issues    │
+// │ KH-INT-001   │ internal   │  1   │ Unexpected internal error                      │ Report at github.com/KeyHarbour/kh/issues     │
 // │ KH-INT-002   │ internal   │  1   │ CLI configuration failed to load               │ Check ~/.kh/config and environment variables  │
 // └──────────────┴────────────┴──────┴────────────────────────────────────────────────┴───────────────────────────────────────────────┘
 
@@ -71,14 +71,14 @@ var ErrResourceConflict = ErrorDef{
 var ErrMissingToken = ErrorDef{
 	Code:     "KH-AUTH-001",
 	Category: CategoryAuth,
-	hint:     "run 'kh login --token <TOKEN>' or set the KH_TOKEN environment variable",
+	hint:     "run 'kh auth login --token <TOKEN>' or set the KH_TOKEN environment variable",
 }
 
 // ErrTokenInvalid is used when the API returns HTTP 401.
 var ErrTokenInvalid = ErrorDef{
 	Code:     "KH-AUTH-002",
 	Category: CategoryAuth,
-	hint:     "check that your token is valid and has not expired; run 'kh login' to re-authenticate",
+	hint:     "check that your token is valid and has not expired; run 'kh auth login' to re-authenticate",
 }
 
 // Permission errors
@@ -144,7 +144,7 @@ var ErrPartialFailure = ErrorDef{
 var ErrInternal = ErrorDef{
 	Code:     "KH-INT-001",
 	Category: CategoryInternal,
-	hint:     "this is an unexpected error; please report it at https://github.com/keyharbour/cli/issues",
+	hint:     "this is an unexpected error; please report it at https://github.com/KeyHarbour/kh/issues",
 }
 
 // ErrConfigLoad is used when the CLI configuration cannot be read.

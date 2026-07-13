@@ -82,6 +82,41 @@ func TestHTTPReaderListReturnsSingleObject(t *testing.T) {
 	}
 }
 
+func TestHTTPReaderListThenGetUsesCachedPayload(t *testing.T) {
+	payload := []byte("terraform-state")
+	getCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		getCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	r := NewHTTPReader(srv.URL)
+	objects, err := r.List(context.Background())
+	if err != nil {
+		t.Fatalf("List error: %v", err)
+	}
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(objects))
+	}
+
+	data, _, err := r.Get(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("unexpected payload: %q", string(data))
+	}
+	if getCalls != 1 {
+		t.Fatalf("expected a single GET call with cache reuse, got %d", getCalls)
+	}
+}
+
 func TestHTTPReaderListPropagatesGetError(t *testing.T) {
 	r := &HTTPReader{URL: "://bad-url", HTTP: newHTTPClient()}
 

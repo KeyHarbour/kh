@@ -1,3 +1,22 @@
+## v1.14.4 (2026-07-11)
+
+### Bug Fixes
+* skip existing tags during auto bump (39f162f)
+
+### Maintenance
+* sync public release v1.14.2 (7c03a44)
+
+---
+
+## v1.14.2 (2026-07-07)
+
+### Bug Fixes
+* point internal-error issue link to public kh repo (700d035)
+* validate token during login before saving config (4119089)
+* correct auth command in error hints (4c31beb)
+
+---
+
 ## v1.14.1 (2026-06-30)
 
 ### Maintenance
