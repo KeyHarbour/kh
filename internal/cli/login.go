@@ -24,6 +24,7 @@ func newLoginCmd() *cobra.Command {
 		Short: "Authenticate with KeyHarbour (OIDC device code or PAT)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.Load()
+			org := config.FromEnvOr(cfg, "KH_ORG", cfg.Org)
 
 			// Use endpoint from flag, env, or config (in that order)
 			if endpoint == "" {
@@ -71,9 +72,11 @@ func newLoginCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			// Make a test call to validate the token works
-			if _, err := client.ListProjects(ctx, testCfg.Org); err != nil {
-				return kherrors.ErrTokenInvalid.Newf("token validation failed: %v", err)
+			// Validate token with an org-scoped call when org context is available.
+			if org != "" {
+				if _, err := client.ListProjects(ctx, org); err != nil {
+					return kherrors.ErrTokenInvalid.Newf("token validation failed: %v", err)
+				}
 			}
 
 			// Token is valid, save the config
