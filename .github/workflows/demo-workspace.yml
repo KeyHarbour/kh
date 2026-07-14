@@ -41,11 +41,11 @@ jobs:
       - name: "Step 1 - List All Projects"
         run: |
           echo "Listing all projects in your account..."
-  echo ""
-  echo "About this demo:"
-  echo "  This workflow demonstrates resource discovery and navigation"
-  echo "  You will learn how to explore projects, workspaces, and environments"
-  echo ""
+          echo ""
+          echo "About this demo:"
+          echo "  This workflow demonstrates resource discovery and navigation"
+          echo "  You will learn how to explore projects, workspaces, and environments"
+          echo ""
           echo ""
 
           ${{ env.CLI_PATH }} project list \
