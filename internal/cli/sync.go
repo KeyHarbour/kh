@@ -99,13 +99,8 @@ Examples:
 			if err != nil {
 				return kherrors.ErrConfigLoad.Wrapf(err, "failed to load configuration: %s", err)
 			}
-
-			if concurrency == 0 {
-				concurrency = cfg.Concurrency
-			}
-			if concurrency == 0 {
-				concurrency = 4
-			}
+			targetWorkspaceRef := workspaceRefOrEnv(workspace, cfg)
+			concurrency = normalizeConcurrency(concurrency, cfg.Concurrency)
 
 			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
 
@@ -188,7 +183,7 @@ Examples:
 					return err
 				}
 				destProj = &proj
-				w = backend.NewKeyHarbourWriter(client, destProj.UUID, workspaceRefOrEnv(workspace, cfg), createWorkspace)
+				w = backend.NewKeyHarbourWriter(client, destProj.UUID, targetWorkspaceRef, createWorkspace)
 			case "local":
 				if outPath == "" {
 					return kherrors.ErrMissingFlag.New("--local-out is required for --to=local")
@@ -244,8 +239,22 @@ Examples:
 			logging.Debugf("Found %d objects in source", len(objs))
 
 			// Validate workspace constraints
-			if to == "keyharbour" && workspace != "" && len(objs) > 1 {
+			if to == "keyharbour" && targetWorkspaceRef != "" && len(objs) > 1 {
 				return kherrors.ErrInvalidValue.Newf("source has %d items but --workspace specified a single target. Remove --workspace to infer names, or ensure source has only 1 item.", len(objs))
+			}
+
+			if to == "local" && len(objs) > 1 {
+				paths := map[string]struct{}{}
+				for _, obj := range objs {
+					resolvedPath, err := resolveLocalOutputPath(outPath, obj)
+					if err != nil {
+						return kherrors.ErrInvalidValue.Wrapf(err, "invalid --local-out path: %s", err)
+					}
+					if _, exists := paths[resolvedPath]; exists {
+						return kherrors.ErrInvalidValue.New("--to=local with multiple objects requires unique output paths; use --local-out with {workspace} or {key} placeholders")
+					}
+					paths[resolvedPath] = struct{}{}
+				}
 			}
 
 			if dryRun {
@@ -259,7 +268,7 @@ Examples:
 				}
 				if to == "keyharbour" && destProj != nil {
 					summary["project"] = destProj.Name
-					summary["workspace"] = workspace
+					summary["workspace"] = targetWorkspaceRef
 					summary["environment"] = env
 				}
 				items := make([]map[string]interface{}, len(objs))
@@ -282,7 +291,20 @@ Examples:
 			}
 
 			// Process objects with concurrency
-			results := workerpool.Run(objs, concurrency, func(obj backend.Object) error {
+			results := workerpool.RunContext(ctx, objs, concurrency, func(obj backend.Object) error {
+				lockID := ""
+				if lock && from == "keyharbour" {
+					if obj.Module != "" {
+						lockID = obj.Module
+					} else {
+						lockID = obj.Key
+					}
+					if err := client.AcquireLock(ctx, lockID); err != nil {
+						return fmt.Errorf("failed to acquire lock for %s: %w", obj.Key, err)
+					}
+					defer func() { _ = client.ReleaseLock(ctx, lockID, false) }()
+				}
+
 				// Read data
 				data, meta, err := r.Get(ctx, obj.Key)
 				if err != nil {
@@ -302,39 +324,21 @@ Examples:
 				switch to {
 				case "keyharbour":
 					// Use workspace name for KeyHarbour
-					targetWorkspaceName := workspace
+					targetWorkspaceName := targetWorkspaceRef
 					if targetWorkspaceName == "" {
 						if obj.Workspace != "" {
 							targetWorkspaceName = obj.Workspace
 						} else {
 							return fmt.Errorf("cannot determine target workspace for %s (use --workspace)", obj.Key)
 						}
+						targetWorkspaceName = validateAndSanitizeWorkspaceName(targetWorkspaceName, cmd.ErrOrStderr())
 					}
-					targetWorkspaceName = validateAndSanitizeWorkspaceName(targetWorkspaceName, cmd.ErrOrStderr())
 					writeKey = targetWorkspaceName
 				case "local":
-					// Use template substitution for file output.
-					// filepath.Base strips any directory separators from backend-supplied
-					// values so a malicious workspace name like "../../etc" cannot write
-					// outside the intended directory.
-					writeKey = outPath
-					writeKey = strings.ReplaceAll(writeKey, "{workspace}", filepath.Base(obj.Workspace))
-					writeKey = strings.ReplaceAll(writeKey, "{key}", filepath.Base(obj.Key))
-					// Reject paths that still contain ".." after cleaning (e.g. the
-					// outPath template itself tried to traverse upward).
-					clean := filepath.Clean(writeKey)
-					if strings.Contains(clean, ".."+string(filepath.Separator)) || strings.HasSuffix(clean, "..") {
-						return fmt.Errorf("resolved output path %q contains directory traversal", clean)
+					writeKey, err = resolveLocalOutputPath(outPath, obj)
+					if err != nil {
+						return fmt.Errorf("invalid --local-out path: %w", err)
 					}
-					writeKey = clean
-				}
-
-				// Lock if requested (only for KeyHarbour sources)
-				if lock && from == "keyharbour" && meta.Module != "" {
-					if err := client.AcquireLock(ctx, meta.Module); err != nil {
-						return fmt.Errorf("failed to acquire lock for %s: %w", meta.Key, err)
-					}
-					defer func() { _ = client.ReleaseLock(ctx, meta.Module, false) }()
 				}
 
 				// Write
@@ -408,15 +412,15 @@ Examples:
 					wsName = objs[0].Workspace
 				}
 				if wsName == "" {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skipping --gen-backend: cannot determine workspace name (use --workspace)\n")
+					fmt.Fprintf(cmd.ErrOrStderr(), "skipping --kh-gen-backend: cannot determine workspace name (use --workspace)\n")
 				} else {
 					genCtx, genCancel := context.WithTimeout(ctx, 10*time.Second)
 					defer genCancel()
 					ws, err := resolveWorkspaceRef(genCtx, client, destProj.UUID, wsName)
 					if err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --gen-backend: could not resolve workspace: %v\n", err)
+						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --kh-gen-backend: could not resolve workspace: %v\n", err)
 					} else if blocked, existing := backendSampleBlocked("."); blocked {
-						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --gen-backend: %s already exists\n", existing)
+						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --kh-gen-backend: %s already exists\n", existing)
 					} else if werr := writeBackendSample("kh_backend.tf.sample", cfg.Endpoint, ws.UUID, cfg.Token); werr != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not write kh_backend.tf.sample: %v\n", werr)
 					} else {
@@ -468,6 +472,40 @@ Examples:
 	cmd.Flags().BoolVar(&genBackend, "kh-gen-backend", false, "Write kh_backend.tf.sample after a successful sync to keyharbour")
 
 	return cmd
+}
+
+func normalizeConcurrency(flagValue, configValue int) int {
+	resolved := flagValue
+	if resolved == 0 {
+		resolved = configValue
+	}
+	if resolved == 0 {
+		resolved = 4
+	}
+	if resolved < 1 {
+		return 1
+	}
+	if resolved > 64 {
+		return 64
+	}
+	return resolved
+}
+
+func resolveLocalOutputPath(template string, obj backend.Object) (string, error) {
+	// filepath.Base strips any directory separators from backend-supplied
+	// values so a malicious workspace name like "../../etc" cannot write
+	// outside the intended directory.
+	resolved := template
+	resolved = strings.ReplaceAll(resolved, "{workspace}", filepath.Base(obj.Workspace))
+	resolved = strings.ReplaceAll(resolved, "{key}", filepath.Base(obj.Key))
+
+	// Reject paths that still contain ".." after cleaning (e.g. the
+	// template itself attempted directory traversal).
+	clean := filepath.Clean(resolved)
+	if strings.Contains(clean, ".."+string(filepath.Separator)) || strings.HasSuffix(clean, "..") {
+		return "", fmt.Errorf("resolved output path %q contains directory traversal", clean)
+	}
+	return clean, nil
 }
 
 // backendSampleBlocked returns true if any kh_backend.{hcl,tf,tf.sample} file

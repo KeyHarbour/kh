@@ -237,6 +237,22 @@ func TestKVGet_RevealFlag(t *testing.T) {
 	}
 }
 
+func TestKVGet_PrivateOutputFileRequiresReveal(t *testing.T) {
+	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"value": "s3cr3t", "expires_at": nil, "private": true})
+	})
+
+	outputPath := t.TempDir() + "/secret.txt"
+	_, err := runKVCmd(t, srv, "get", "MY_KEY", "--output-file", outputPath)
+	if err == nil {
+		t.Fatal("expected error when writing masked private value to --output-file without --reveal")
+	}
+	if !strings.Contains(err.Error(), "--reveal") {
+		t.Fatalf("expected error to mention --reveal, got %v", err)
+	}
+}
+
 func TestKVSet_SendsCorrectPayload(t *testing.T) {
 	var bodyBytes []byte
 	var contentType string
@@ -1317,15 +1333,11 @@ func TestKVSet_EncryptFlagUsesEnvKey(t *testing.T) {
 	}
 }
 
-func TestKVSet_EncryptFlagWithoutEnvKeyWarnsAndSkips(t *testing.T) {
-	var bodyBytes []byte
-	var contentType string
-	var stderrBuf bytes.Buffer
+func TestKVSet_EncryptFlagWithoutEnvKeyReturnsError(t *testing.T) {
+	called := false
 	srv := newKVTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		contentType = r.Header.Get("Content-Type")
-		bodyBytes, _ = io.ReadAll(r.Body)
+		called = true
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	})
 
 	t.Setenv("KH_ENDPOINT", srv.URL)
@@ -1334,22 +1346,21 @@ func TestKVSet_EncryptFlagWithoutEnvKeyWarnsAndSkips(t *testing.T) {
 
 	cmd := newKVCmd()
 	cmd.SetOut(io.Discard)
-	cmd.SetErr(&stderrBuf)
+	cmd.SetErr(io.Discard)
 	cmd.SetContext(context.Background())
 	cmd.SetArgs([]string{"set", "MY_KEY", "plaintext",
 		"--workspace", "11111111-2222-3333-4444-555555555555",
 		"--encrypt",
 	})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("command failed: %v", err)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected command to fail when --encrypt is set without KH_ENCRYPTION_KEY")
 	}
-	if !strings.Contains(stderrBuf.String(), "KH_ENCRYPTION_KEY is not defined") {
-		t.Errorf("expected warning about missing env key, got: %s", stderrBuf.String())
+	if !strings.Contains(err.Error(), "KH_ENCRYPTION_KEY") {
+		t.Errorf("expected error to mention KH_ENCRYPTION_KEY, got: %v", err)
 	}
-	// Value should be sent as plaintext since no key was available
-	fields := parseMultipartBodyFields(t, contentType, bodyBytes)
-	if fields["value"] != "plaintext" {
-		t.Errorf("expected plaintext value when key is missing, got: %#v", fields)
+	if called {
+		t.Fatal("server should not be called when encryption key is missing")
 	}
 }
 

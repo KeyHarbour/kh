@@ -181,8 +181,7 @@ func (o *kvCmdOpts) resolveEncryptionKey(_ config.Config, stderr io.Writer) (*[3
 	if o.encrypt {
 		rawHex := os.Getenv("KH_ENCRYPTION_KEY")
 		if rawHex == "" {
-			fmt.Fprintf(stderr, "warning: --encrypt set but KH_ENCRYPTION_KEY is not defined — values will not be encrypted\n")
-			return nil, nil
+			return nil, kherrors.ErrMissingFlag.New("--encrypt requires KH_ENCRYPTION_KEY (or use --encryption-key-file)")
 		}
 		key, err := kvencrypt.ParseKey(strings.TrimSpace(rawHex))
 		if err != nil {
@@ -360,6 +359,9 @@ Examples:
 			case kvencrypt.IsEncrypted(val):
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encrypt (with KH_ENCRYPTION_KEY) or --encryption-key-file to decrypt\n")
 			case kv.Private && !reveal:
+				if outputFile != "" {
+					return kherrors.ErrInvalidValue.New("refusing to write masked private value to --output-file; use --reveal to export actual value")
+				}
 				raw = []byte("*** (use --reveal to show)")
 			}
 
