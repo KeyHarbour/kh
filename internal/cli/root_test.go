@@ -106,8 +106,24 @@ func TestClassifyError_APIError423(t *testing.T) {
 func TestClassifyError_APIErrorUnhandledStatus(t *testing.T) {
 	apiErr := khclient.APIError{StatusCode: http.StatusBadRequest, Message: "bad request"}
 	got := classifyError(apiErr)
-	if got.Code != "KH-INT-001" {
-		t.Errorf("400 → Code = %q, want KH-INT-001", got.Code)
+	if got.Code != "KH-VAL-002" {
+		t.Errorf("400 → Code = %q, want KH-VAL-002", got.Code)
+	}
+}
+
+func TestClassifyError_APIError422(t *testing.T) {
+	apiErr := khclient.APIError{StatusCode: http.StatusUnprocessableEntity, Message: "validation failed"}
+	got := classifyError(apiErr)
+	if got.Code != "KH-VAL-002" {
+		t.Errorf("422 → Code = %q, want KH-VAL-002", got.Code)
+	}
+}
+
+func TestClassifyError_APIError429(t *testing.T) {
+	apiErr := khclient.APIError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}
+	got := classifyError(apiErr)
+	if got.Code != "KH-NET-002" {
+		t.Errorf("429 → Code = %q, want KH-NET-002", got.Code)
 	}
 }
 

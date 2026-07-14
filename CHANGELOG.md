@@ -1,3 +1,33 @@
+## v1.14.5 (2026-07-14)
+
+### Maintenance
+* fix govulncheck/go toolchain compatibility by moving to Go 1.26.5 and pinning a compatible govulncheck release
+
+---
+
+## v1.14.3 (2026-07-11)
+
+### Bug Fixes
+* skip existing semver tags during auto bump (f2e8859)
+* correct demo-terraform-state YAML indentation (1dd37f8)
+* correct demo-workspace YAML indentation (b59c86b)
+* remediate stdlib vulns via go1.26.5 (f77ae1f)
+* close response body in khclient retry test (bc9af9e)
+* use KH_ORG for token validation (d9d30ac)
+* pin govulncheck compatible with go1.22 (73d2cfe)
+* complete low-severity cleanup cluster (d9ab517)
+* harden concurrency and make toolchain deterministic (1130d59)
+* harden URL/retry behavior and TFC robustness (ebe670a)
+* harden encrypt and sync workspace/output guards (0107629)
+* point internal-error issue link to public kh repo (700d035)
+* validate token during login before saving config (4119089)
+* correct auth command in error hints (4c31beb)
+
+### Maintenance
+* make govulncheck advisory in PR checks (8706300)
+
+---
+
 ## v1.14.1 (2026-06-30)
 
 ### Maintenance

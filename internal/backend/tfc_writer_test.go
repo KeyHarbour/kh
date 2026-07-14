@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTFCWriter_Put_Success(t *testing.T) {
@@ -63,5 +64,15 @@ func TestTFCWriter_Put_Success(t *testing.T) {
 		if _, err := base64.StdEncoding.DecodeString(s); err != nil {
 			t.Fatalf("state not base64: %v", err)
 		}
+	}
+}
+
+func TestNewTFCWriter_UsesTimeoutHTTPClient(t *testing.T) {
+	w := NewTFCWriter("https://app.terraform.io", "org", "ws", "tok")
+	if w.HTTP == nil {
+		t.Fatal("expected HTTP client to be initialized")
+	}
+	if w.HTTP.Timeout != 30*time.Second {
+		t.Fatalf("expected 30s timeout HTTP client, got %s", w.HTTP.Timeout)
 	}
 }

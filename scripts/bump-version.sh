@@ -54,6 +54,10 @@ fi
 if [ -n "$VERSION_OVERRIDE" ]; then
   new_version="$VERSION_OVERRIDE"
   bump_type="manual"
+  if git rev-parse --verify --quiet "refs/tags/v${new_version}" >/dev/null; then
+    echo "❌ Tag v${new_version} already exists. Choose a different manual version."
+    exit 1
+  fi
 else
   bump_type="patch"
   for commit in "${raw_commits[@]}"; do
@@ -71,6 +75,14 @@ else
     patch) patch=$((patch + 1)) ;;
   esac
   new_version="${major}.${minor}.${patch}"
+
+  # If the computed SemVer already exists as a tag (for example when the
+  # nearest reachable tag lags behind newer tags created on another branch),
+  # keep incrementing patch until we find a free version.
+  while git rev-parse --verify --quiet "refs/tags/v${new_version}" >/dev/null; do
+    patch=$((patch + 1))
+    new_version="${major}.${minor}.${patch}"
+  done
 fi
 
 # ── Sort commits into groups ──────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,11 @@ func newHTTPClient() *http.Client {
 type HTTPReader struct {
 	URL  string
 	HTTP *http.Client
+
+	mu         sync.Mutex
+	cachedKey  string
+	cachedData []byte
+	cachedObj  Object
 }
 
 func NewHTTPReader(url string) *HTTPReader { return &HTTPReader{URL: url, HTTP: newHTTPClient()} }
@@ -30,11 +36,24 @@ func (r *HTTPReader) List(ctx context.Context) ([]Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = b
+	r.mu.Lock()
+	r.cachedKey = r.URL
+	r.cachedData = append([]byte(nil), b...)
+	r.cachedObj = obj
+	r.mu.Unlock()
 	return []Object{obj}, nil
 }
 
 func (r *HTTPReader) Get(ctx context.Context, key string) ([]byte, Object, error) {
+	r.mu.Lock()
+	if key == r.cachedKey && r.cachedData != nil {
+		data := append([]byte(nil), r.cachedData...)
+		obj := r.cachedObj
+		r.mu.Unlock()
+		return data, obj, nil
+	}
+	r.mu.Unlock()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.URL, nil)
 	if err != nil {
 		return nil, Object{}, err

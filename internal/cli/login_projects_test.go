@@ -28,11 +28,22 @@ func TestLoginCommand_RequiresTokenOrDevice(t *testing.T) {
 func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 	useTempConfigHome(t)
 
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	t.Setenv("KH_ORG", "org-123")
+
 	buf := &bytes.Buffer{}
 	cmd := newLoginCmd()
 	cmd.SetOut(buf)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", "https://example.test/api/v2"})
+	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", srv.URL + "/api/v2"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("login failed: %v", err)
@@ -45,10 +56,10 @@ func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 	if cfg.Token != "pat-123" {
 		t.Fatalf("expected token to be saved, got %q", cfg.Token)
 	}
-	if cfg.Endpoint != "https://example.test/api/v2" {
+	if cfg.Endpoint != srv.URL+"/api/v2" {
 		t.Fatalf("expected endpoint to be saved, got %q", cfg.Endpoint)
 	}
-	if !strings.Contains(buf.String(), "login ok") || !strings.Contains(buf.String(), "https://example.test/api/v2") {
+	if !strings.Contains(buf.String(), "login ok") || !strings.Contains(buf.String(), srv.URL+"/api/v2") {
 		t.Fatalf("unexpected output %q", buf.String())
 	}
 }
@@ -56,8 +67,20 @@ func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 func TestLoginCommand_UsesEnvFallbacksAndDeviceFlow(t *testing.T) {
 	t.Run("env fallback", func(t *testing.T) {
 		useTempConfigHome(t)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		}))
+		defer srv.Close()
+
 		t.Setenv("KH_TOKEN", "env-token")
-		t.Setenv("KH_ENDPOINT", "https://env.keyharbour.test")
+		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+		t.Setenv("KH_ORG", "org-123")
 
 		buf := &bytes.Buffer{}
 		cmd := newLoginCmd()
@@ -75,13 +98,25 @@ func TestLoginCommand_UsesEnvFallbacksAndDeviceFlow(t *testing.T) {
 		if cfg.Token != "env-token" {
 			t.Fatalf("expected env token to be saved, got %q", cfg.Token)
 		}
-		if cfg.Endpoint != "https://env.keyharbour.test" {
+		if cfg.Endpoint != srv.URL+"/api/v2" {
 			t.Fatalf("expected env endpoint to be saved as-is, got %q", cfg.Endpoint)
 		}
 	})
 
 	t.Run("device flow", func(t *testing.T) {
 		useTempConfigHome(t)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		}))
+		defer srv.Close()
+		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+		t.Setenv("KH_ORG", "org-123")
 
 		oldStderr := os.Stderr
 		readPipe, writePipe, err := os.Pipe()
