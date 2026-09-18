@@ -19,7 +19,12 @@ VERSION_OVERRIDE="${1:-}"
 VERSION_FILE="VERSION"
 CHANGELOG_FILE="CHANGELOG.md"
 
-# Fetch all tags so git log range works on a fresh CI checkout
+# Fetch tags from the private origin only.
+#
+# The public repo's tags are deliberately NOT fetched: a sync squashes private
+# main onto public/main, so public tags point at commits that do not exist in
+# this history. Fetching them makes `git describe` fall through to an older tag,
+# which silently corrupts both the version and the changelog range.
 git fetch --tags --force 2>/dev/null || true
 
 # Use the latest git tag as the source of truth for the current version.
@@ -38,6 +43,42 @@ IFS='.' read -r major minor patch <<< "$current_version"
 echo "Last tag   : ${last_tag:-"(none)"}"
 echo "Current    : v${current_version}"
 echo "Scanning   : ${range}"
+
+# ── Guard: VERSION already ahead of the last tag ──────────────────────────────
+# The current version is derived from the latest tag, not from the VERSION file.
+# If VERSION is already ahead, a bump has been prepared but not yet released —
+# running again would bump on top of it and cut a version nobody intended (for
+# example 1.14.1 -> 1.15.0 -> 1.15.1 when only 1.15.0 was meant to ship).
+#
+# This is the documented path in RELEASING.md, so it needs to fail loudly rather
+# than quietly produce an extra release. Set ALLOW_VERSION_AHEAD=1 to override.
+file_version=$(cat "$VERSION_FILE" 2>/dev/null || echo "")
+if [ -n "$file_version" ] && [ -n "$last_tag" ] && [ "$file_version" != "$current_version" ]; then
+  # Sort both and see which one comes last; only block when VERSION is newer.
+  newest=$(printf '%s\n%s\n' "$file_version" "$current_version" | sort -V | tail -1)
+  if [ "$newest" = "$file_version" ]; then
+    if [ "${ALLOW_VERSION_AHEAD:-0}" = "1" ]; then
+      echo "⚠️  VERSION (${file_version}) is ahead of the last tag (v${current_version}) — continuing because ALLOW_VERSION_AHEAD=1."
+    else
+      echo
+      echo "✋ VERSION is already ahead of the last released tag."
+      echo "   VERSION file : ${file_version}"
+      echo "   Last tag     : v${current_version}"
+      echo
+      echo "   A bump to ${file_version} has been prepared but not released yet."
+      echo "   Bumping again would cut a version nobody intended."
+      echo
+      echo "   If ${file_version} has NOT shipped yet, run the sync step instead:"
+      echo "       make release-sync"
+      echo
+      echo "   If ${file_version} is already released on KeyHarbour/kh, tag it here:"
+      echo "       make release-tag"
+      echo
+      echo "   To bump anyway: ALLOW_VERSION_AHEAD=1 $0 ${VERSION_OVERRIDE}"
+      exit 1
+    fi
+  fi
+fi
 
 # bash 3.2-compatible replacement for mapfile
 raw_commits=()

@@ -1,3 +1,59 @@
+## v1.15.0 (2026-09-18)
+
+### Upgrade notes
+
+This release corrects CLI behaviour that scripts may depend on. Review these
+before upgrading:
+
+* **Refusing a delete for want of `--force` now exits non-zero.** `kv delete`,
+  `workspace delete` and the `license … delete` commands previously printed
+  "Pass --force to confirm" and exited 0, so `kh kv delete X && echo ok` ran
+  the right-hand side although nothing was deleted. The refusal is now a
+  `KH-VAL-001` validation error (exit 3).
+* **`kh tf version rm` now requires `--force`**, matching every other
+  destructive command. A single-version `rm` used to delete immediately.
+* **`kv env --format dotenv` no longer shell-quotes values.** It emits raw
+  `KEY=VALUE`, so `docker --env-file` and standard dotenv parsers no longer
+  read the quotes as part of the value. `--format export` still quotes.
+* **`kh project show` now defaults to table output** and honours
+  `--output json`, like every sibling `show` command. Scripts that parsed its
+  output as JSON must pass `-o json` explicitly.
+* **`kh auth login` no longer reports `login ok` for an unverified token.**
+  Without an organization it saves the token and reports it as not verified;
+  pass the new `--org` flag (or set `KH_ORG`) to verify during login.
+* **Workspace names that sanitize to an empty string are now rejected**, and
+  `sync` fails up front when two source names collapse onto the same
+  sanitized workspace (`prod-1` and `prod_1` both become `prod1`).
+
+### Bug Fixes
+* never report login ok for a token that was not verified (b4ccc25)
+* emit the JSON error envelope on commands with a local -o flag (9513377)
+* CLI/UX consistency fixes from v1.14.1 review (56e72b2)
+* uplift toolchain to go1.26.6 for stdlib vulnerabilities (b3c3226)
+* correct demo-terraform-state YAML indentation (1dd37f8)
+* correct demo-workspace YAML indentation (b59c86b)
+* remediate stdlib vulns via go1.26.5 (f77ae1f)
+* close response body in khclient retry test (bc9af9e)
+* use KH_ORG for token validation (d9d30ac)
+* pin govulncheck compatible with go1.22 (73d2cfe)
+* complete low-severity cleanup cluster (d9ab517)
+* harden concurrency and make toolchain deterministic (1130d59)
+* harden URL/retry behavior and TFC robustness (ebe670a)
+* harden encrypt and sync workspace/output guards (0107629)
+* point internal-error issue link to public kh repo (700d035)
+* validate token during login before saving config (4119089)
+* correct auth command in error hints (4c31beb)
+
+### Maintenance
+* detect stdlib CVEs on a schedule and automate the toolchain pin (cd00ef3)
+* chore(ci):(deps): bump actions/setup-go from 6 to 7 (beed383)
+* chore(ci):(deps): bump golangci/golangci-lint-action from 8 to 9 (9dfde4d)
+* chore(ci):(deps): bump actions/download-artifact from 7 to 8 (222416d)
+* chore(ci):(deps): bump actions/checkout from 5 to 7 (3dcad8f)
+* chore(ci):(deps): bump actions/upload-artifact from 6 to 7 (7924a15)
+
+---
+
 ## v1.14.1 (2026-06-30)
 
 ### Maintenance

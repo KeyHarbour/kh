@@ -151,9 +151,14 @@ func TestWorkspacesDelete_RequiresForce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	_, _ = runWorkspacesCmd(t, srv, "delete", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid")
+	// The refusal must be an error so that `kh workspace delete X && ...`
+	// does not run the right-hand side.
+	_, err := runWorkspacesCmd(t, srv, "delete", "11111111-2222-3333-4444-555555555555", "--project", "proj-uuid")
 	if deleteCalled {
 		t.Fatal("DELETE should not be called without --force")
+	}
+	if err == nil || !strings.Contains(err.Error(), "without --force") {
+		t.Fatalf("expected force error, got %v", err)
 	}
 }
 

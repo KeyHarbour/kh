@@ -180,8 +180,7 @@ func newWorkspacesDeleteCmd(opts *workspaceCmdOpts) *cobra.Command {
 		Args:  requireExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Delete workspace %q? This cannot be undone. Pass --force to confirm.\n", args[0])
-				return nil
+				return kherrors.ErrMissingFlag.Newf("refusing to delete workspace %q without --force: this cannot be undone", args[0])
 			}
 			cfg, _ := config.LoadWithEnv()
 			ref, err := opts.projectRef(cfg)

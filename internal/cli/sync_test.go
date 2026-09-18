@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"kh/internal/khclient"
@@ -288,4 +289,108 @@ func TestSyncCmd_InvalidWorkspacePattern_ReturnsKHError(t *testing.T) {
 	t.Setenv("KH_TOKEN", "dummy")
 	err := runSyncCmd(t, "--from=keyharbour", "--local-workspace-pattern=[invalid")
 	assertKHError(t, err, "KH-VAL-002")
+}
+
+func TestSyncCmd_UsesKHWorkspaceEnvForDestination(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "terraform.tfstate")
+	stateContent := `{"version": 4, "terraform_version": "1.5.0", "serial": 1, "lineage": "abc", "outputs": {}}`
+	if err := os.WriteFile(stateFile, []byte(stateContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectUUID := "a1b2c3d4-a1b2-c3d4-e5f6-a1b2c3d4e5f6"
+	defaultWorkspaceUUID := "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+	targetWorkspaceUUID := "cccccccc-1111-2222-3333-dddddddddddd"
+	targetWorkspaceName := "targetws"
+
+	var uploadedToTarget bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(khclient.Project{UUID: projectUUID, Name: "my-project"})
+	})
+	mux.HandleFunc(fmt.Sprintf("/api/v2/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]khclient.Workspace{
+			{UUID: defaultWorkspaceUUID, Name: "default"},
+			{UUID: targetWorkspaceUUID, Name: targetWorkspaceName},
+		})
+	})
+	mux.HandleFunc(fmt.Sprintf("/api/v2/workspaces/%s/statefiles", targetWorkspaceUUID), func(w http.ResponseWriter, r *http.Request) {
+		uploadedToTarget = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"created"}`))
+	})
+	mux.HandleFunc(fmt.Sprintf("/api/v2/workspaces/%s/statefiles", defaultWorkspaceUUID), func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("sync wrote to default workspace instead of KH_WORKSPACE env target")
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL)
+	t.Setenv("KH_TOKEN", "dummy-token")
+	t.Setenv("KH_WORKSPACE", targetWorkspaceName)
+
+	err := runSyncCmd(t,
+		"--from=local",
+		"--local-path="+stateFile,
+		"--to=keyharbour",
+		"--kh-project="+projectUUID,
+	)
+	if err != nil {
+		t.Fatalf("sync command failed: %v", err)
+	}
+	if !uploadedToTarget {
+		t.Fatal("expected sync to upload into workspace selected by KH_WORKSPACE env")
+	}
+}
+
+func TestSyncCmd_ToLocal_MultiObjectRequiresUniqueOutputPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.tfstate"), []byte(`{"version":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.tfstate"), []byte(`{"version":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runSyncCmd(t,
+		"--from=local",
+		"--local-path="+tmpDir,
+		"--to=local",
+		"--local-out="+filepath.Join(tmpDir, "out.tfstate"),
+	)
+	khErr := assertKHError(t, err, "KH-VAL-002")
+	if !strings.Contains(khErr.Message, "unique output paths") {
+		t.Fatalf("unexpected error message: %s", khErr.Message)
+	}
+}
+
+func TestNormalizeConcurrency(t *testing.T) {
+	tests := []struct {
+		name        string
+		flagValue   int
+		configValue int
+		want        int
+	}{
+		{name: "default fallback", flagValue: 0, configValue: 0, want: 4},
+		{name: "use config", flagValue: 0, configValue: 8, want: 8},
+		{name: "flag wins", flagValue: 3, configValue: 8, want: 3},
+		{name: "clamp low from flag", flagValue: -10, configValue: 8, want: 1},
+		{name: "clamp high from flag", flagValue: 100000, configValue: 8, want: 64},
+		{name: "clamp high from config", flagValue: 0, configValue: 100000, want: 64},
+		{name: "clamp low from config", flagValue: 0, configValue: -5, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeConcurrency(tt.flagValue, tt.configValue)
+			if got != tt.want {
+				t.Fatalf("normalizeConcurrency(%d, %d) = %d, want %d", tt.flagValue, tt.configValue, got, tt.want)
+			}
+		})
+	}
 }

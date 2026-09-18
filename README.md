@@ -68,6 +68,9 @@ make build
 # Save token and endpoint to ~/.kh/config
 kh auth login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2
 
+# Pass --org (or set KH_ORG) to verify the token as part of logging in
+kh auth login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2 --org <org-uuid>
+
 # Or use environment variables (recommended for CI)
 export KH_TOKEN="your-api-token"
 export KH_ENDPOINT="https://app.keyharbour.ca/api/v2"
@@ -75,6 +78,11 @@ export KH_ENDPOINT="https://app.keyharbour.ca/api/v2"
 # Verify your session
 kh auth whoami
 ```
+
+Token verification is org-scoped, so `login` can only check the token when an
+organization is known — from `--org`, `KH_ORG`, or an existing config. Without
+one the token is saved but reported as **not verified**, rather than as a
+success it cannot vouch for.
 
 ---
 
@@ -182,8 +190,8 @@ kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstat
 kh tf version push --project <uuid> --workspace <uuid> --file ./terraform.tfstate --output json
 terraform state pull | kh tf version push --project <uuid> --workspace <workspace-uuid> --stdin
 
-# Delete a specific version
-kh tf version rm <statefile-uuid>
+# Delete a specific version (irreversible)
+kh tf version rm <statefile-uuid> --force
 
 # Delete all versions for a workspace (irreversible)
 kh tf version rm-all --project <uuid> --workspace <uuid> --force
@@ -196,6 +204,7 @@ kh tf version rm-all --project <uuid> --workspace <uuid> --force
 ```zsh
 kh project ls --org <org-uuid>
 kh project show <project-uuid>
+kh project show <project-uuid> --output json
 kh project create <name> --org <org-uuid> --environment production
 kh project create <name> --org <org-uuid> --environment production --environment staging --description "..."
 kh project update <project-uuid> --name new-name --environment production

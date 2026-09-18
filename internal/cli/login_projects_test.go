@@ -28,11 +28,22 @@ func TestLoginCommand_RequiresTokenOrDevice(t *testing.T) {
 func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 	useTempConfigHome(t)
 
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	t.Setenv("KH_ORG", "org-123")
+
 	buf := &bytes.Buffer{}
 	cmd := newLoginCmd()
 	cmd.SetOut(buf)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", "https://example.test/api/v2"})
+	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", srv.URL + "/api/v2"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("login failed: %v", err)
@@ -45,10 +56,10 @@ func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 	if cfg.Token != "pat-123" {
 		t.Fatalf("expected token to be saved, got %q", cfg.Token)
 	}
-	if cfg.Endpoint != "https://example.test/api/v2" {
+	if cfg.Endpoint != srv.URL+"/api/v2" {
 		t.Fatalf("expected endpoint to be saved, got %q", cfg.Endpoint)
 	}
-	if !strings.Contains(buf.String(), "login ok") || !strings.Contains(buf.String(), "https://example.test/api/v2") {
+	if !strings.Contains(buf.String(), "login ok") || !strings.Contains(buf.String(), srv.URL+"/api/v2") {
 		t.Fatalf("unexpected output %q", buf.String())
 	}
 }
@@ -56,8 +67,20 @@ func TestLoginCommand_SavesTokenAndEndpoint(t *testing.T) {
 func TestLoginCommand_UsesEnvFallbacksAndDeviceFlow(t *testing.T) {
 	t.Run("env fallback", func(t *testing.T) {
 		useTempConfigHome(t)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		}))
+		defer srv.Close()
+
 		t.Setenv("KH_TOKEN", "env-token")
-		t.Setenv("KH_ENDPOINT", "https://env.keyharbour.test")
+		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+		t.Setenv("KH_ORG", "org-123")
 
 		buf := &bytes.Buffer{}
 		cmd := newLoginCmd()
@@ -75,13 +98,25 @@ func TestLoginCommand_UsesEnvFallbacksAndDeviceFlow(t *testing.T) {
 		if cfg.Token != "env-token" {
 			t.Fatalf("expected env token to be saved, got %q", cfg.Token)
 		}
-		if cfg.Endpoint != "https://env.keyharbour.test" {
+		if cfg.Endpoint != srv.URL+"/api/v2" {
 			t.Fatalf("expected env endpoint to be saved as-is, got %q", cfg.Endpoint)
 		}
 	})
 
 	t.Run("device flow", func(t *testing.T) {
 		useTempConfigHome(t)
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/organizations/org-123/projects" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		}))
+		defer srv.Close()
+		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+		t.Setenv("KH_ORG", "org-123")
 
 		oldStderr := os.Stderr
 		readPipe, writePipe, err := os.Pipe()
@@ -477,6 +512,46 @@ func TestProjectsShowCommand(t *testing.T) {
 		}
 	})
 
+	// Like every sibling show command, the default is a table; JSON is opt-in
+	// via --output json.
+	t.Run("defaults to table output", func(t *testing.T) {
+		useTempConfigHome(t)
+		outputFormat = "table"
+		defer func() { outputFormat = "" }()
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/projects/proj-123" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"proj-123","name":"demo","environment_names":["prod","dev"]}`))
+		}))
+		defer srv.Close()
+
+		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+		t.Setenv("KH_TOKEN", "test-token")
+
+		buf := &bytes.Buffer{}
+		cmd := newProjectsShowCmd()
+		cmd.SetOut(buf)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs([]string{"proj-123"})
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("show failed: %v", err)
+		}
+		out := buf.String()
+		if strings.Contains(out, `"uuid"`) {
+			t.Fatalf("expected table output, got JSON: %q", out)
+		}
+		for _, want := range []string{"UUID", "NAME", "ENVIRONMENTS", "proj-123", "demo", "prod, dev"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("expected %q in output, got %q", want, out)
+			}
+		}
+	})
+
 	t.Run("project api error", func(t *testing.T) {
 		useTempConfigHome(t)
 
@@ -529,4 +604,147 @@ func TestProjectsShowCommand(t *testing.T) {
 			t.Fatalf("unexpected output %q", buf.String())
 		}
 	})
+}
+
+// ── login token validation (#44) ──────────────────────────────────────────
+
+// loginStubServer answers the org-scoped project list used to verify a token,
+// keyed by the org in the path so one server can stand in for every outcome.
+func loginStubServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/organizations/good/"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.Contains(r.URL.Path, "/organizations/unauth/"):
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"token expired"}`))
+		case strings.Contains(r.URL.Path, "/organizations/forbidden/"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"no access"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"not found"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A token nothing has checked must never be reported as "login ok". Before this
+// fix, login with no org configured skipped validation entirely and printed
+// "login ok" for any string, against any endpoint — including one that does not
+// resolve.
+func TestLoginCommand_UnverifiedWithoutOrg(t *testing.T) {
+	useTempConfigHome(t)
+	t.Setenv("KH_ORG", "")
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := newLoginCmd()
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", "https://example.test/api/v2"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("login should still save the token, got %v", err)
+	}
+	if strings.Contains(stdout.String(), "login ok") {
+		t.Errorf("must not claim success for an unverified token, got %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "NOT verified") {
+		t.Errorf("expected the unverified notice on stdout, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "could not be checked") {
+		t.Errorf("expected a warning on stderr, got %q", stderr.String())
+	}
+
+	// The token is still saved — the command did its job, it just says so honestly.
+	cfg, err := internalconfig.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "pat-123" {
+		t.Errorf("token should be saved, got %q", cfg.Token)
+	}
+}
+
+// --org verifies the token without needing KH_ORG, and is persisted for later
+// commands.
+func TestLoginCommand_OrgFlagVerifies(t *testing.T) {
+	useTempConfigHome(t)
+	t.Setenv("KH_ORG", "")
+	srv := loginStubServer(t)
+
+	stdout := &bytes.Buffer{}
+	cmd := newLoginCmd()
+	cmd.SetOut(stdout)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", srv.URL + "/api/v2", "--org", "good"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "login ok") {
+		t.Errorf("expected login ok, got %q", stdout.String())
+	}
+	cfg, err := internalconfig.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Org != "good" {
+		t.Errorf("expected --org to be saved, got %q", cfg.Org)
+	}
+}
+
+// A failure to verify is not automatically an invalid token. Reporting a 403,
+// a wrong org or an unreachable API as "token validation failed" sends users
+// off to regenerate a token that was never the problem.
+func TestLoginCommand_ValidationErrorsAreDistinguished(t *testing.T) {
+	srv := loginStubServer(t)
+
+	cases := []struct {
+		name     string
+		org      string
+		endpoint string
+		wantCode string
+		wantMsg  string
+	}{
+		{"401 is an invalid token", "unauth", srv.URL + "/api/v2", "KH-AUTH-002", "rejected this token"},
+		{"403 is a permission problem", "forbidden", srv.URL + "/api/v2", "KH-PERM-001", "not permitted to read organization"},
+		{"404 is a wrong org", "missing", srv.URL + "/api/v2", "KH-NF-001", "does not exist"},
+		{"unreachable API is not a token problem", "good", "http://127.0.0.1:1/api/v2", "KH-NET-002", "could not reach the API"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			useTempConfigHome(t)
+			t.Setenv("KH_ORG", "")
+
+			cmd := newLoginCmd()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs([]string{"--token", "pat", "--endpoint", tc.endpoint, "--org", tc.org})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			khErr := classifyError(err)
+			if khErr.Code != tc.wantCode {
+				t.Errorf("code = %q, want %q (err: %v)", khErr.Code, tc.wantCode, err)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error = %q, want it to mention %q", err.Error(), tc.wantMsg)
+			}
+
+			// A token the API did not accept must not be left in the config.
+			cfg, loadErr := internalconfig.Load()
+			if loadErr == nil && cfg.Token == "pat" {
+				t.Error("an unverified token must not be saved after a failed check")
+			}
+		})
+	}
 }

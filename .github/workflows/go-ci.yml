@@ -17,14 +17,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
           cache: true
+
+      # go-version-file resolves the toolchain from go.mod, so print what it
+      # actually installed — a silent drift here is what #49 exists to prevent.
+      - name: Report toolchain
+        run: go version
 
       - name: Verify modules
         run: |
@@ -57,6 +62,9 @@ jobs:
           go tool cover -html=coverage/coverage.out -o coverage/coverage.html
           go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
 
+      - name: Test with race detector
+        run: go test -race ./...
+
       - name: Coverage summary
         run: |
           TOTAL=$(grep '^total:' coverage/coverage.txt | awk '{print $NF}')
@@ -73,13 +81,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/**
 
       - name: Upload binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: kh-binary
           path: bin/kh
@@ -93,15 +101,15 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11.4
           args: --timeout=5m
@@ -115,12 +123,15 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
           cache: true
+
+      - name: Report toolchain
+        run: go version
 
       - name: govulncheck
         run: |
@@ -129,7 +140,7 @@ jobs:
 
       - name: gosec
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
           set +e
           gosec -fmt=text -out=/tmp/gosec.txt ./... 2>&1
           GOSEC_EXIT=$?

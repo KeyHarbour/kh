@@ -174,16 +174,18 @@ func TestGetStateRaw_NoMetaHeader(t *testing.T) {
 
 func TestGetStateRaw_IDEscapedInPath(t *testing.T) {
 	var gotPath string
+	var gotRequestURI string
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
+		gotRequestURI = r.RequestURI
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, `{}`)
 	})
 
 	c := New(config.Config{Endpoint: srv.URL})
 	c.GetStateRaw(context.Background(), "proj/module/workspace")
-	if gotPath != "/v1/states/proj%2Fmodule%2Fworkspace" {
-		t.Fatalf("expected path-escaped id, got %q", gotPath)
+	if gotRequestURI != "/v1/states/proj%2Fmodule%2Fworkspace" {
+		t.Fatalf("expected encoded request URI, got %q (decoded path %q)", gotRequestURI, gotPath)
 	}
 }
 

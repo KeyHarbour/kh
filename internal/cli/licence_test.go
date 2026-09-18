@@ -202,9 +202,14 @@ func TestLicenseDelete_RequiresForce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	_, _ = runLicenseCmd(t, srv, "delete", "app-1")
+	// The refusal must be an error so that `kh license delete X && ...`
+	// does not run the right-hand side.
+	_, err := runLicenseCmd(t, srv, "delete", "app-1")
 	if deleteCalled {
 		t.Fatal("DELETE should not be called without --force")
+	}
+	if err == nil || !strings.Contains(err.Error(), "without --force") {
+		t.Fatalf("expected force error, got %v", err)
 	}
 }
 

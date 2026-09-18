@@ -32,7 +32,7 @@ func NewTFCWriter(host, org, workspace, token string) *TFCWriter {
 		Org:       org,
 		Workspace: workspace,
 		Token:     token,
-		HTTP:      http.DefaultClient,
+		HTTP:      newHTTPClient(),
 	}
 }
 

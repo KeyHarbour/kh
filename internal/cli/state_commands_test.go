@@ -266,11 +266,19 @@ func TestStatefilesCommands(t *testing.T) {
 			t.Fatal("expected missing arg error")
 		}
 
+		deleteCmd = newStatefilesDeleteCmd(&statefileTarget{})
+		deleteCmd.SetOut(io.Discard)
+		deleteCmd.SetErr(io.Discard)
+		deleteCmd.SetArgs([]string{"sf-1"})
+		if err := deleteCmd.Execute(); err == nil || !strings.Contains(err.Error(), "without --force") {
+			t.Fatalf("expected force error, got %v", err)
+		}
+
 		buf := &bytes.Buffer{}
 		deleteCmd = newStatefilesDeleteCmd(&statefileTarget{})
 		deleteCmd.SetOut(buf)
 		deleteCmd.SetErr(io.Discard)
-		deleteCmd.SetArgs([]string{"sf-1"})
+		deleteCmd.SetArgs([]string{"sf-1", "--force"})
 		if err := deleteCmd.Execute(); err != nil {
 			t.Fatalf("statefiles rm failed: %v", err)
 		}
