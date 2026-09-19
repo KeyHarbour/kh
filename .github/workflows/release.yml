@@ -25,8 +25,15 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          # Resolve the toolchain from go.mod. setup-go pins GOTOOLCHAIN=local,
+          # so a hardcoded version that is older than go.mod's requirement fails
+          # outright rather than downloading the right one — which is how the
+          # v1.15.0 release failed with "go.mod requires go >= 1.26".
+          go-version-file: go.mod
           cache: true
+
+      - name: Report toolchain
+        run: go version
 
       - name: Import Developer ID certificate
         env:
