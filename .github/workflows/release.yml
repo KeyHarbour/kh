@@ -22,6 +22,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # The workflow_dispatch `tag` input was declared required but never
+          # referenced, so a manual re-run silently checked out the default
+          # branch instead of the tag. GoReleaser then refused with "git tag
+          # vX.Y.Z was not made against commit <main HEAD>".
+          # On a tag push, inputs is empty and this falls back to github.ref,
+          # which is already the tag.
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-go@v6
         with:
