@@ -58,6 +58,13 @@ Environment variables:
 
 	// Configure debug logging prior to any subcommand execution
 	cmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// Apply KH_OUTPUT env var only when --output was not explicitly passed.
+		if !cmd.Root().PersistentFlags().Changed("output") {
+			if v := os.Getenv("KH_OUTPUT"); v != "" {
+				outputFormat = v
+			}
+		}
+
 		// If --version was passed, print version and exit immediately.
 		if showVersion {
 			if outputFormat == "json" {
@@ -77,12 +84,6 @@ Environment variables:
 			}
 		}
 		logging.SetDebug(debug)
-		// Apply KH_OUTPUT env var only when --output was not explicitly passed.
-		if !cmd.Root().PersistentFlags().Changed("output") {
-			if v := os.Getenv("KH_OUTPUT"); v != "" {
-				outputFormat = v
-			}
-		}
 		// Warn when TLS verification is disabled so it is never silent.
 		if v := os.Getenv("KH_INSECURE"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is disabled (KH_INSECURE)")
@@ -121,9 +122,10 @@ Environment variables:
 // Execute runs the root command and maps errors to exit codes.
 func Execute() int {
 	root := newRootCmd()
-	if err := root.Execute(); err != nil {
+	executed, err := root.ExecuteC()
+	if err != nil {
 		khErr := classifyError(err)
-		if outputFormat == "json" {
+		if effectiveOutputFormat(executed) == "json" {
 			enc := json.NewEncoder(os.Stderr)
 			enc.SetIndent("", "  ")
 			_ = enc.Encode(map[string]any{"error": khErr})
@@ -136,6 +138,25 @@ func Execute() int {
 		return khErr.ExitCode()
 	}
 	return exitcodes.OK
+}
+
+// effectiveOutputFormat resolves the output format that actually applies to the
+// command that ran.
+//
+// Most subcommands declare their own local --output/-o flag, which shadows the
+// inherited persistent flag on root. When that happens cobra binds the value to
+// the subcommand's own variable and the package-level outputFormat keeps its
+// default, so outputFormat alone cannot decide how an error should be rendered.
+// Looking the flag up on the executed command resolves the local flag when one
+// was set and falls back to the persistent flag (and therefore KH_OUTPUT)
+// otherwise.
+func effectiveOutputFormat(cmd *cobra.Command) string {
+	if cmd != nil {
+		if f := cmd.Flags().Lookup("output"); f != nil && f.Changed {
+			return f.Value.String()
+		}
+	}
+	return outputFormat
 }
 
 // requireExactArgs wraps cobra.ExactArgs so that wrong-arity errors are
@@ -171,10 +192,14 @@ func classifyError(err error) *kherrors.KHError {
 			return kherrors.ErrTokenInvalid.Wrap(msg, err)
 		case apiErr.StatusCode == 403:
 			return kherrors.ErrForbidden.Wrap(msg, err)
+		case apiErr.StatusCode == 400 || apiErr.StatusCode == 422:
+			return kherrors.ErrInvalidValue.Wrap(msg, err)
 		case apiErr.StatusCode == 404:
 			return kherrors.ErrNotFound.Wrap(msg, err)
 		case apiErr.StatusCode == 409 || apiErr.StatusCode == 423:
 			return kherrors.ErrStateLocked.Wrap(msg, err)
+		case apiErr.StatusCode == 429:
+			return kherrors.ErrAPIError.Wrap(msg, err)
 		case apiErr.StatusCode >= 500:
 			return kherrors.ErrAPIError.Wrap(msg, err)
 		}

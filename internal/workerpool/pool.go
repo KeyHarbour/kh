@@ -1,6 +1,8 @@
 package workerpool
 
 import (
+	"context"
+	"fmt"
 	"sync"
 )
 
@@ -12,6 +14,12 @@ type Result struct {
 
 // Run runs fn over items with at most 'concurrency' workers.
 func Run[T any](items []T, concurrency int, fn TaskFunc[T]) []Result {
+	return RunContext(context.Background(), items, concurrency, fn)
+}
+
+// RunContext runs fn over items with at most 'concurrency' workers and
+// stops dispatching new work when ctx is canceled.
+func RunContext[T any](ctx context.Context, items []T, concurrency int, fn TaskFunc[T]) []Result {
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -23,11 +31,28 @@ func Run[T any](items []T, concurrency int, fn TaskFunc[T]) []Result {
 		go func() {
 			defer wg.Done()
 			for idx := range ch {
-				res[idx].Err = fn(items[idx])
+				if ctx.Err() != nil {
+					res[idx].Err = ctx.Err()
+					continue
+				}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							res[idx].Err = fmt.Errorf("worker panic: %v", r)
+						}
+					}()
+					res[idx].Err = fn(items[idx])
+				}()
 			}
 		}()
 	}
 	for i := range items {
+		if ctx.Err() != nil {
+			for j := i; j < len(items); j++ {
+				res[j].Err = ctx.Err()
+			}
+			break
+		}
 		ch <- i
 	}
 	close(ch)

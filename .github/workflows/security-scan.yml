@@ -1,0 +1,115 @@
+name: Scheduled security scan
+
+# go-ci runs govulncheck on push and pull_request, which only catches an
+# advisory once somebody happens to open a PR. New reachable stdlib CVEs land
+# upstream without anything here changing, so main can sit red for days and the
+# breakage then surfaces on an unrelated contributor's PR (see #45, which went
+# red for a crypto/tls advisory while changing dotenv quoting).
+#
+# This job watches for that independently and files an issue when it finds one.
+on:
+  schedule:
+    # 06:17 UTC daily — off the hour to avoid the scheduling stampede.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Report toolchain
+        run: go version
+
+      - name: govulncheck
+        id: scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          set +e
+          govulncheck ./... > /tmp/govulncheck.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat /tmp/govulncheck.txt
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## Vulnerability scan (govulncheck)"
+            echo ""
+            echo "Toolchain: \`$(go version)\`"
+            echo ""
+            if [ "${{ steps.scan.outputs.exit_code }}" -eq 0 ]; then
+              echo ":white_check_mark: No vulnerabilities found"
+            else
+              echo ":rotating_light: Reachable advisories found"
+              echo ""
+              echo '```'
+              cat /tmp/govulncheck.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A red scheduled run is easy to miss. File an issue so the finding lands
+      # somewhere a human will see it, and reuse the open one on later runs
+      # rather than filing a duplicate every morning.
+      - name: File or update tracking issue
+        if: steps.scan.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Idempotent: the label may not exist yet in a fresh fork or clone.
+          gh label create security-scan \
+            --description "Filed by the scheduled govulncheck scan" \
+            --color B60205 2>/dev/null || true
+
+          existing="$(gh issue list --state open --label security-scan \
+            --json number --jq '.[0].number // empty')"
+
+          {
+            echo "\`govulncheck\` reports reachable vulnerabilities against the pinned toolchain."
+            echo ""
+            echo "- Toolchain: \`$(go version)\`"
+            echo "- Run: $RUN_URL"
+            echo "- Detected: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "<details><summary>govulncheck output</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/govulncheck.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "The usual remedy is a toolchain patch uplift; see the automation in #50."
+          } > /tmp/issue-body.md
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/issue-body.md
+            echo "Commented on existing issue #$existing"
+          else
+            gh issue create \
+              --title "Security: reachable vulnerabilities detected by scheduled scan" \
+              --label security-scan \
+              --body-file /tmp/issue-body.md
+          fi
+
+      - name: Fail the job when advisories are reachable
+        if: steps.scan.outputs.exit_code != '0'
+        run: |
+          echo "govulncheck reported reachable vulnerabilities — see the job summary."
+          exit 1

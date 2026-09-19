@@ -1,0 +1,169 @@
+name: Go toolchain bump
+
+# The Go toolchain is the one dependency here with no automated update path.
+# Dependabot's gomod ecosystem updates module requirements but not the
+# `toolchain` directive, and its github-actions ecosystem updates action
+# versions but not the inputs passed to them. That gap let the pin go stale
+# twice (#37, #46), each time discovered by a failing security scan.
+#
+# This proposes the patch bump instead of waiting for someone to notice.
+# Minor-version moves (1.26 -> 1.27) stay a deliberate human decision.
+on:
+  schedule:
+    # Mondays 05:00 UTC, ahead of the dependabot runs later that morning.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve current and latest toolchain
+        id: resolve
+        run: |
+          current="$(awk '/^toolchain /{print $2}' go.mod)"
+          if [ -z "$current" ]; then
+            echo "go.mod has no toolchain directive — nothing to bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Stay within the pinned minor: go1.26.6 -> 1.26
+          minor="$(echo "$current" | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')"
+
+          latest="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
+            | jq -r --arg m "go${minor}." \
+                '[.[] | select(.stable) | .version | select(startswith($m))]
+                 | sort_by(sub("^go[0-9]+\\.[0-9]+\\.?";"") | tonumber? // 0)
+                 | last // empty')"
+
+          if [ -z "$latest" ]; then
+            echo "No stable release found for go${minor} — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "branch=chore/go-toolchain-$latest" >> "$GITHUB_OUTPUT"
+
+          if [ "$current" = "$latest" ]; then
+            echo "Already on $current — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Bump available: $current -> $latest"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if a PR already exists
+        id: existing
+        if: steps.resolve.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+        run: |
+          open_pr="$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')"
+          if [ -n "$open_pr" ]; then
+            echo "PR #$open_pr already proposes this bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply the bump
+        if: steps.resolve.outputs.skip == 'false' && steps.existing.outputs.skip == 'false'
+        env:
+          CURRENT: ${{ steps.resolve.outputs.current }}
+          LATEST: ${{ steps.resolve.outputs.latest }}
+        run: |
+          sed -i -E "s|^toolchain ${CURRENT}$|toolchain ${LATEST}|" go.mod
+          git diff --exit-code go.mod && { echo "go.mod unchanged — aborting."; exit 1; }
+          echo "go.mod now pins ${LATEST}"
+
+      - uses: actions/setup-go@v7
+        if: steps.resolve.outputs.skip == 'false' && steps.existing.outputs.skip == 'false'
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Verify before proposing, so review is a formality rather than an
+      # investigation.
+      - name: Build, test and scan on the new toolchain
+        id: verify
+        if: steps.resolve.outputs.skip == 'false' && steps.existing.outputs.skip == 'false'
+        run: |
+          go version
+          go build ./...
+          go test ./...
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          set +e
+          govulncheck ./... > /tmp/govulncheck.txt 2>&1
+          echo "vuln_exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat /tmp/govulncheck.txt
+
+      - name: Open the pull request
+        if: steps.resolve.outputs.skip == 'false' && steps.existing.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT: ${{ steps.resolve.outputs.current }}
+          LATEST: ${{ steps.resolve.outputs.latest }}
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+          VULN_EXIT: ${{ steps.verify.outputs.vuln_exit }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add go.mod
+
+          {
+            echo "chore(ci): bump Go toolchain to ${LATEST}"
+            echo ""
+            echo "Automated patch bump within the pinned minor, ${CURRENT} -> ${LATEST}."
+            echo "Build, tests and govulncheck ran against the new toolchain before"
+            echo "this PR was opened."
+            echo ""
+            echo "Refs #50."
+          } > /tmp/commit-msg.txt
+
+          git commit -F /tmp/commit-msg.txt
+          git push -u origin "$BRANCH"
+
+          {
+            echo "Automated Go toolchain patch bump: \`${CURRENT}\` → \`${LATEST}\`."
+            echo ""
+            echo "Verified on the new toolchain before opening:"
+            echo ""
+            echo "- \`go build ./...\` — clean"
+            echo "- \`go test ./...\` — passing"
+            if [ "$VULN_EXIT" -eq 0 ]; then
+              echo "- \`govulncheck ./...\` — no vulnerabilities found"
+            else
+              echo "- \`govulncheck ./...\` — :warning: **still reporting advisories on ${LATEST}**"
+              echo ""
+              echo '```'
+              cat /tmp/govulncheck.txt
+              echo '```'
+            fi
+            echo ""
+            echo "Only the \`toolchain\` directive in \`go.mod\` changed; the workflows"
+            echo "resolve their Go version from it via \`go-version-file\`, so there is"
+            echo "nothing else to edit."
+            echo ""
+            echo "Refs #50."
+          } > /tmp/pr-body.md
+
+          gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "$BRANCH" \
+            --title "chore(ci): bump Go toolchain to ${LATEST}" \
+            --body-file /tmp/pr-body.md

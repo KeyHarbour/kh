@@ -181,8 +181,7 @@ func (o *kvCmdOpts) resolveEncryptionKey(_ config.Config, stderr io.Writer) (*[3
 	if o.encrypt {
 		rawHex := os.Getenv("KH_ENCRYPTION_KEY")
 		if rawHex == "" {
-			fmt.Fprintf(stderr, "warning: --encrypt set but KH_ENCRYPTION_KEY is not defined — values will not be encrypted\n")
-			return nil, nil
+			return nil, kherrors.ErrMissingFlag.New("--encrypt requires KH_ENCRYPTION_KEY (or use --encryption-key-file)")
 		}
 		key, err := kvencrypt.ParseKey(strings.TrimSpace(rawHex))
 		if err != nil {
@@ -360,6 +359,9 @@ Examples:
 			case kvencrypt.IsEncrypted(val):
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: value appears encrypted; use --encrypt (with KH_ENCRYPTION_KEY) or --encryption-key-file to decrypt\n")
 			case kv.Private && !reveal:
+				if outputFile != "" {
+					return kherrors.ErrInvalidValue.New("refusing to write masked private value to --output-file; use --reveal to export actual value")
+				}
 				raw = []byte("*** (use --reveal to show)")
 			}
 
@@ -771,8 +773,7 @@ Examples:
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Delete key %q? This cannot be undone. Pass --force to confirm.\n", args[0])
-				return nil
+				return kherrors.ErrMissingFlag.Newf("refusing to delete key %q without --force: this cannot be undone", args[0])
 			}
 			cfg, _ := config.LoadWithEnv()
 			mode, store, err := opts.resolveStore(cfg, cmd.ErrOrStderr())
@@ -895,12 +896,17 @@ Examples:
 			pairs := resolveKVPairs(cmd, store, ctx, workspaceUUID, prefix, environment, encKey)
 			out := cmd.OutOrStdout()
 			for _, p := range pairs {
-				// Single-quote the value and escape any embedded single quotes.
-				escaped := strings.ReplaceAll(p.Value, "'", `'\''`)
 				switch format {
 				case "dotenv":
-					fmt.Fprintf(out, "%s='%s'\n", p.Name, escaped)
+					// Emit the raw value: dotenv parsers and docker --env-file
+					// treat surrounding quotes as part of the value.
+					if strings.ContainsAny(p.Value, "\r\n") {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: value for %q contains a line break; dotenv files cannot represent it\n", p.Name)
+					}
+					fmt.Fprintf(out, "%s=%s\n", p.Name, p.Value)
 				default: // "export"
+					// Single-quote the value and escape any embedded single quotes.
+					escaped := strings.ReplaceAll(p.Value, "'", `'\''`)
 					fmt.Fprintf(out, "export %s='%s'\n", p.Name, escaped)
 				}
 			}

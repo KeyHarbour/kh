@@ -283,16 +283,19 @@ Examples:
 }
 
 func newStatefilesDeleteCmd(_ *statefileTarget) *cobra.Command {
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "rm <uuid>",
 		Short: "Delete a specific statefile version by UUID",
-		Long: `Delete a specific statefile version by its UUID.
+		Long: `Delete a specific statefile version by its UUID. This is irreversible.
 
 No --project or --workspace flags are required; the UUID uniquely identifies
 the statefile. Use 'kh tf version ls' to find UUIDs.
 
+Pass --force to confirm — the command refuses to proceed without it.
+
 Examples:
-  kh tf version rm <uuid>`,
+  kh tf version rm <uuid> --force`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return kherrors.ErrMissingFlag.New("version rm requires exactly one argument: <uuid>")
@@ -300,6 +303,9 @@ Examples:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				return kherrors.ErrMissingFlag.Newf("refusing to delete statefile %s without --force", args[0])
+			}
 			cfg, _ := config.LoadWithEnv()
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -311,6 +317,7 @@ Examples:
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Confirm deletion of the statefile version")
 	return cmd
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"kh/internal/config"
@@ -119,7 +120,14 @@ func newProjectsShowCmd() *cobra.Command {
 			if detail, err := client.GetProject(ctx, proj.UUID); err == nil {
 				proj = detail
 			}
-			return output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}.JSON(proj)
+			printer := output.Printer{Format: outputFormat, W: cmd.OutOrStdout()}
+			if printer.Format == "json" {
+				return printer.JSON(proj)
+			}
+			return printer.Table(
+				[]string{"UUID", "NAME", "DESCRIPTION", "ENVIRONMENTS"},
+				[][]string{{proj.UUID, proj.Name, orDash(proj.Description), orDash(strings.Join(proj.Environments, ", "))}},
+			)
 		},
 	}
 	return cmd
