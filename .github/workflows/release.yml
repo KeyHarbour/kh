@@ -17,6 +17,14 @@ jobs:
   release:
     name: GoReleaser
     runs-on: macos-latest
+    # These workflows are authored in the private KeyHarbour/cli repo and reach
+    # this repo through sync-public.sh, so the files exist in both places but
+    # must only ever execute here. On the private repo auto-tag would tag main
+    # the moment VERSION changes — recreating the phantom tags cleaned up in
+    # September 2026 — and release would run GoReleaser against a repo with no
+    # release secrets. Private-side tagging is handled by tag-released-version.yml,
+    # which runs only after a release is actually published here.
+    if: github.repository == 'KeyHarbour/kh'
 
     steps:
       - uses: actions/checkout@v6

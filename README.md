@@ -68,6 +68,9 @@ make build
 # Save token and endpoint to ~/.kh/config
 kh auth login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2
 
+# Prefer --token-stdin: --token puts the secret in argv and your shell history
+printf '%s' "$KH_TOKEN" | kh auth login --token-stdin --endpoint https://app.keyharbour.ca/api/v2
+
 # Pass --org (or set KH_ORG) to verify the token as part of logging in
 kh auth login --token <your-api-token> --endpoint https://app.keyharbour.ca/api/v2 --org <org-uuid>
 
