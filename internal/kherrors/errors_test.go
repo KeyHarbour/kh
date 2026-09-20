@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"kh/internal/exitcodes"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/exitcodes"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 // ── Exit-code mapping ──────────────────────────────────────────────────────

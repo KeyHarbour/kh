@@ -15,8 +15,8 @@ import (
 	"path"
 	"time"
 
-	"kh/internal/config"
-	"kh/internal/logging"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/logging"
 )
 
 const (

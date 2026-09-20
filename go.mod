@@ -1,4 +1,4 @@
-module kh
+module github.com/KeyHarbour/kh
 
 go 1.26
 

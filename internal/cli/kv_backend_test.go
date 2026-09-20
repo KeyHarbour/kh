@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func runKVLocalCmd(t *testing.T, args ...string) (stdout string, stderr string, err error) {

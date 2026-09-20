@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 func TestSyncCmd_Local_Success(t *testing.T) {

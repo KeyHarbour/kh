@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestListStatefiles(t *testing.T) {

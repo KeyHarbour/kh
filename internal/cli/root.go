@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"kh/internal/exitcodes"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
-	"kh/internal/logging"
-	"kh/pkg/version"
+	"github.com/KeyHarbour/kh/internal/exitcodes"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/logging"
+	"github.com/KeyHarbour/kh/pkg/version"
 
 	"github.com/spf13/cobra"
 )

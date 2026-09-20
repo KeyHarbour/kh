@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"kh/internal/kherrors"
-	"kh/internal/kvencrypt"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/kvencrypt"
 )
 
 // newKVTestServer starts a test server pre-wired with project and workspace resolution

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestListStates_404ReturnsEmpty(t *testing.T) {

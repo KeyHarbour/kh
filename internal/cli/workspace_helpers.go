@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 // sanitizeWorkspaceName strips any character that is not a letter or digit.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/khclient"
 )
 
 // KeyHarbourReader reads state from KeyHarbour

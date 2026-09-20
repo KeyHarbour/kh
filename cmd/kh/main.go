@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"kh/internal/cli"
+	"github.com/KeyHarbour/kh/internal/cli"
 )
 
 func main() {

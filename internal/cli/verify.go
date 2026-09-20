@@ -2,8 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"kh/internal/kherrors"
-	"kh/internal/output"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/output"
 
 	"github.com/spf13/cobra"
 )

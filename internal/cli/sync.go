@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"kh/internal/backend"
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
-	"kh/internal/logging"
-	"kh/internal/output"
-	"kh/internal/state"
-	"kh/internal/workerpool"
+	"github.com/KeyHarbour/kh/internal/backend"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/logging"
+	"github.com/KeyHarbour/kh/internal/output"
+	"github.com/KeyHarbour/kh/internal/state"
+	"github.com/KeyHarbour/kh/internal/workerpool"
 
 	"github.com/spf13/cobra"
 )

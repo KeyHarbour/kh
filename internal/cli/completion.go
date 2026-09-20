@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"kh/internal/config"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
