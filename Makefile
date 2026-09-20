@@ -100,19 +100,6 @@ release-sync:
 	echo "Syncing v$$v to KeyHarbour/kh (no bump, no tag)."; \
 	./scripts/sync-public.sh "sync/v$$v"
 
-# Bump version, commit, and open a sync PR on KeyHarbour/kh.
-# Usage: make release          (auto-detect bump from commits)
-#        make release V=1.8.0  (explicit version)
-release:
-	@./scripts/bump-version.sh $(if $(V),$(V),)
-	@echo "Review CHANGELOG.md, then press Enter to commit and sync (Ctrl-C to abort)." && read _
-	git add VERSION CHANGELOG.md
-	git commit -m "chore: bump version to v$$(cat VERSION)"
-	git tag "v$$(cat VERSION)"
-	git push
-	git push origin "v$$(cat VERSION)"
-	./scripts/sync-public.sh sync/v$$(cat VERSION)
-
 # ---------------------------------------------------------------------------
 # Integration tests (require KH_ENDPOINT and KH_TOKEN to be set)
 # KH_SNAPSHOT_DIR defaults to ./integration-tests/testdata/snapshots

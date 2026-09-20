@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"kh/internal/config"
 	"kh/internal/khclient"
 	"kh/internal/kherrors"
@@ -63,6 +64,16 @@ func newLoginCmd() *cobra.Command {
 			}
 			if token == "" {
 				return kherrors.ErrMissingToken.New("provide --token-stdin, set KH_TOKEN environment variable, or use --device")
+			}
+
+			// --token puts the secret in argv: visible in `ps` for the lifetime of
+			// the command, and written to shell history afterwards. Warn when a
+			// human is driving. Stay quiet otherwise — in CI the flag is often the
+			// only practical option, and the warning would just be noise in a log
+			// nobody reads.
+			if cmd.Flags().Changed("token") && isTerminal(cmd.ErrOrStderr()) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --token places your token in argv and in your shell history")
+				fmt.Fprintln(cmd.ErrOrStderr(), "hint: pipe it instead — 'kh auth login --token-stdin < token.txt' — or set KH_TOKEN")
 			}
 
 			// Validate token by making a test API call
@@ -142,6 +153,21 @@ func loginValidationError(org string, err error) error {
 		}
 	}
 	return kherrors.ErrAPIError.Wrapf(err, "could not reach the API to verify the token: %s", err)
+}
+
+// isTerminal reports whether w is attached to a character device — the usual
+// proxy for "a person is watching". A test buffer, a pipe, or a redirected file
+// is not, which is what keeps the --token warning out of CI logs.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func newLogoutCmd() *cobra.Command {

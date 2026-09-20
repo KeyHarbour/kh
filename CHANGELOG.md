@@ -1,3 +1,13 @@
+## v1.15.1 (2026-09-19)
+
+### Bug Fixes
+* warn on --token in shell history, and scope what --lock covers (890ab32)
+
+### Maintenance
+* author release.yml and auto-tag.yml in the private repo (0717e8f)
+
+---
+
 ## v1.15.0 (2026-09-18)
 
 ### Upgrade notes

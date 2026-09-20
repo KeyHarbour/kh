@@ -748,3 +748,56 @@ func TestLoginCommand_ValidationErrorsAreDistinguished(t *testing.T) {
 		})
 	}
 }
+
+// ── --token shell-history warning (#57) ───────────────────────────────────
+
+// The warning is for humans at a prompt. A test writer is not a character
+// device, so it must stay silent here — which is the same reason it stays out
+// of CI logs.
+func TestLoginCommand_TokenFlagWarningIsQuietWhenNotATerminal(t *testing.T) {
+	useTempConfigHome(t)
+	t.Setenv("KH_ORG", "")
+
+	stderr := &bytes.Buffer{}
+	cmd := newLoginCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"--token", "pat-123", "--endpoint", "https://example.test/api/v2"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	if strings.Contains(stderr.String(), "shell history") {
+		t.Errorf("warning must not fire when stderr is not a terminal, got %q", stderr.String())
+	}
+}
+
+func TestIsTerminal(t *testing.T) {
+	if isTerminal(&bytes.Buffer{}) {
+		t.Error("a buffer is not a terminal")
+	}
+	if isTerminal(io.Discard) {
+		t.Error("io.Discard is not a terminal")
+	}
+
+	// A regular file is a *os.File but not a character device.
+	f, err := os.CreateTemp(t.TempDir(), "notatty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if isTerminal(f) {
+		t.Error("a regular file is not a terminal")
+	}
+
+	// /dev/null is a character device — the one positive case available without
+	// allocating a pty.
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("cannot open %s: %v", os.DevNull, err)
+	}
+	defer devnull.Close()
+	if !isTerminal(devnull) {
+		t.Errorf("%s is a character device and should report true", os.DevNull)
+	}
+}

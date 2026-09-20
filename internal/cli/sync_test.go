@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -392,5 +393,71 @@ func TestNormalizeConcurrency(t *testing.T) {
 				t.Fatalf("normalizeConcurrency(%d, %d) = %d, want %d", tt.flagValue, tt.configValue, got, tt.want)
 			}
 		})
+	}
+}
+
+// An object present at List time can be deleted before the worker reads it —
+// the listing happens before any lock exists. That is a different situation
+// from a read that simply failed, and reporting it as "failed to read" sends
+// people looking for the wrong problem. See #57.
+func TestSyncCmd_ObjectDeletedBetweenListAndGet(t *testing.T) {
+	projectUUID := "a1b2c3d4-a1b2-c3d4-e5f6-a1b2c3d4e5f6"
+	workspaceUUID := "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+	statefileUUID := "ffffffff-9999-8888-7777-eeeeeeeeeeee"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/projects/"+projectUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(khclient.Project{UUID: projectUUID, Name: "my-project"})
+	})
+	mux.HandleFunc(fmt.Sprintf("/api/v2/projects/%s/workspaces", projectUUID), func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]khclient.Workspace{{UUID: workspaceUUID, Name: "default"}})
+	})
+	// List reports the statefile...
+	mux.HandleFunc(fmt.Sprintf("/api/v2/workspaces/%s/statefiles", workspaceUUID), func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]khclient.Statefile{{UUID: statefileUUID}})
+	})
+	// ...but it is gone by the time the worker fetches it.
+	mux.HandleFunc("/api/v2/statefiles/"+statefileUUID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
+	t.Setenv("KH_TOKEN", "dummy-token")
+
+	// Per-object failures are listed on stdout; the returned error is the
+	// aggregate count.
+	stdout := &bytes.Buffer{}
+	cmd := newSyncCmd()
+	cmd.SetOut(stdout)
+	cmd.SetErr(io.Discard)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{
+		"--from=keyharbour",
+		"--kh-src-project=" + projectUUID,
+		"--kh-src-workspace=default",
+		"--to=local",
+		"--local-out=" + filepath.Join(t.TempDir(), "out.tfstate"),
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error when the object disappears mid-run")
+	}
+	assertKHError(t, err, "KH-PART-001")
+
+	out := stdout.String()
+	if !strings.Contains(out, "no longer exists") {
+		t.Errorf("failure list should say the object was deleted after the sync started, got %q", out)
+	}
+	if strings.Contains(out, "failed to read") {
+		t.Errorf("should not report a generic read failure, got %q", out)
 	}
 }

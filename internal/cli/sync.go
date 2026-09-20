@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -306,6 +308,14 @@ Examples:
 
 			// Process objects with concurrency
 			results := workerpool.RunContext(ctx, objs, concurrency, func(obj backend.Object) error {
+				// The lock is taken before Get, so the payload read and the
+				// subsequent write are both covered. What is deliberately NOT
+				// covered is the List above: the set of objects is enumerated
+				// before any lock exists, so an object can be created or deleted
+				// between enumeration and processing. A deleted one is reported
+				// explicitly below; a newly created one is simply not in this run.
+				// Closing that gap needs a workspace-level lock, which would
+				// change --lock from per-object to whole-run granularity.
 				lockID := ""
 				if lock && from == "keyharbour" {
 					if obj.Module != "" {
@@ -322,6 +332,15 @@ Examples:
 				// Read data
 				data, meta, err := r.Get(ctx, obj.Key)
 				if err != nil {
+					// Distinguish "deleted while we were running" from a generic
+					// read failure: the object was present at List time, so a 404
+					// here means someone removed it mid-run. Reporting that as a
+					// plain read error sends people looking for the wrong problem.
+					var apiErr khclient.APIError
+					if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+						return kherrors.ErrNotFound.Wrapf(err,
+							"%s was listed but no longer exists — it was deleted after the sync started", obj.Key)
+					}
 					return fmt.Errorf("failed to read %s: %w", obj.Key, err)
 				}
 
@@ -481,7 +500,7 @@ Examples:
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without writing")
 	cmd.Flags().BoolVar(&verifyChecksum, "verify-checksum", false, "Verify checksums during sync")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing files/states")
-	cmd.Flags().BoolVar(&lock, "lock", false, "Acquire advisory lock during sync (for --from=keyharbour)")
+	cmd.Flags().BoolVar(&lock, "lock", false, "Hold an advisory lock on each object while it is read and written; does not cover the initial listing (for --from=keyharbour)")
 	cmd.Flags().BoolVar(&verifyAfterUpload, "verify-after-upload", true, "Verify upload for HTTP destinations")
 	cmd.Flags().StringVar(&workspacePattern, "local-workspace-pattern", "", "Workspace regex filter (for --from=local)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "Parallelism for operations (defaults from KH_CONCURRENCY)")
