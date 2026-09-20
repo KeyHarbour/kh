@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 func newIPv4Server(t *testing.T, handler http.HandlerFunc) *httptest.Server {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
 )
 
 func TestKeyHarbourReaderList_WithSpecificStatefile(t *testing.T) {

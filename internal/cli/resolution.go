@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"regexp"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 type referenceResolver interface {

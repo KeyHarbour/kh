@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	internalconfig "kh/internal/config"
+	internalconfig "github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestLoginCommand_RequiresTokenOrDevice(t *testing.T) {
