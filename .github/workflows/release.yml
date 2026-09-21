@@ -27,7 +27,7 @@ jobs:
     if: github.repository == 'KeyHarbour/kh'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # The workflow_dispatch `tag` input was declared required but never
