@@ -2,7 +2,7 @@ module kh
 
 go 1.26
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require github.com/spf13/cobra v1.10.2
 
