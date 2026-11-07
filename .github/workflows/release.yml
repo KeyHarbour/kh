@@ -27,7 +27,7 @@ jobs:
     if: github.repository == 'KeyHarbour/kh'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # The workflow_dispatch `tag` input was declared required but never
@@ -38,7 +38,7 @@ jobs:
           # which is already the tag.
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           # Resolve the toolchain from go.mod. setup-go pins GOTOOLCHAIN=local,
           # so a hardcoded version that is older than go.mod's requirement fails
