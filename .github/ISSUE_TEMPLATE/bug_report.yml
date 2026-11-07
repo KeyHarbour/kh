@@ -1,0 +1,54 @@
+name: Bug Report
+description: Report a reproducible bug in KeyHarbour kh
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please check existing issues before opening a new one.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Start the app with `docker compose up`
+        2. Navigate to '...'
+        3. Click on '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant Rails/Docker logs (please redact any secrets or keys).
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: KH Version
+      description: Check the `VERSION`
+      placeholder: "v1.13.1"
+    validations:
+      required: true

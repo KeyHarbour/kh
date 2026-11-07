@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://keyharbour.ca
+    about: Check the official installation and configuration guides first.
+  - name: Community Discussions & Q&A
+    url: https://github.com/KeyHarbour/kh/discussions
+    about: Ask questions and share ideas with the community.
