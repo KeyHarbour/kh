@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"kh/internal/config"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 
 	"github.com/spf13/cobra"
 )
@@ -16,7 +17,7 @@ import (
 // scaffoldTerraformProject creates a minimal Terraform project scaffold
 // under dir/<module>/<env> following best practices and using an HTTP backend
 // pointing to the KeyHarbour service.
-func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, _ string, force bool, backendType string, tfcOrg string, tfcWorkspace string) (string, error) {
+func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, _ string, force bool, backendType string, tfcOrg string, tfcWorkspace string, khWorkspace string) (string, error) {
 	if name == "" {
 		return "", kherrors.ErrMissingFlag.New("name is required")
 	}
@@ -35,6 +36,9 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, _ stri
 		}
 		// Normalize endpoint (no trailing slash)
 		endpoint = strings.TrimRight(endpoint, "/")
+		if khWorkspace != "" && !looksLikeUUID(khWorkspace) {
+			return "", kherrors.ErrInvalidValue.Newf("workspace %q is not a valid UUID", khWorkspace)
+		}
 	}
 
 	// Target directory layout: <dir>/<module>/<env>
@@ -56,7 +60,7 @@ func scaffoldTerraformProject(dir, name, env, module, endpoint, _ string, _ stri
 	switch backendType {
 	case "http":
 		files[filepath.Join(target, "backend.tf")] = terraformBackendTF()
-		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCL(endpoint)
+		files[filepath.Join(target, "backend.hcl")] = terraformBackendHCL(endpoint, khWorkspace, env)
 	case "cloud":
 		if tfcOrg == "" {
 			return "", kherrors.ErrMissingFlag.New("--tfc-org (or TF_CLOUD_ORGANIZATION) is required for --backend=cloud")
@@ -105,21 +109,36 @@ func terraformCloudBlock(org, workspace string) string {
 }`, org, workspace)
 }
 
-// terraformBackendHCL generates backend.hcl using the V2 workspace-based path.
-// Replace YOUR_WORKSPACE_UUID with the actual workspace UUID after creating the workspace.
-func terraformBackendHCL(endpoint string) string {
-	const placeholder = "YOUR_WORKSPACE_UUID"
-	return fmt.Sprintf(`# Replace %s with your workspace UUID.
-# Run 'kh tf version ls' after creating the workspace to find it.
-address        = "%s/workspaces/%s/state"
-lock_address   = "%s/workspaces/%s/state/lock"
-unlock_address = "%s/workspaces/%s/state/lock"
-lock_method    = "POST"
+// workspaceUUIDPlaceholder stands in for the workspace UUID in generated
+// backend configs when it is not known at generation time.
+const workspaceUUIDPlaceholder = "YOUR_WORKSPACE_UUID"
+
+// terraformBackendAddress returns the Terraform HTTP backend address served by
+// KeyHarbourApi: <host>/statefiles/v1/<workspace_uuid>/<environment>. The
+// backend lives at the host root, so the /api/v2 suffix of the configured
+// endpoint is stripped. State, lock and unlock all share this address.
+func terraformBackendAddress(endpoint, workspaceUUID, environment string) string {
+	return khclient.HostRoot(endpoint) + khclient.TerraformBackendPath(workspaceUUID, environment)
+}
+
+// terraformBackendHCL generates backend.hcl for the KeyHarbour Terraform HTTP
+// backend. When workspaceUUID is empty a placeholder is written instead.
+func terraformBackendHCL(endpoint, workspaceUUID, environment string) string {
+	header := ""
+	if workspaceUUID == "" {
+		workspaceUUID = workspaceUUIDPlaceholder
+		header = fmt.Sprintf("# Replace %s with your workspace UUID.\n# Run 'kh workspace ls' after creating the workspace to find it.\n", workspaceUUIDPlaceholder)
+	}
+	addr := terraformBackendAddress(endpoint, workspaceUUID, environment)
+	return fmt.Sprintf(`%saddress        = %q
+lock_address   = %q
+unlock_address = %q
+lock_method    = "PUT"
 unlock_method  = "DELETE"
 username       = "kh"
 # password is read from TF_HTTP_PASSWORD environment variable
 retry_max      = 2
-`, placeholder, endpoint, placeholder, endpoint, placeholder, endpoint, placeholder)
+`, header, addr, addr, addr)
 }
 
 func terraformVersionsTF() string {
@@ -190,8 +209,9 @@ This folder was scaffolded by kh to bootstrap a Terraform project with a backend
 
 How to use:
 
-1. (HTTP backend) Replace YOUR_WORKSPACE_UUID in backend.hcl with your workspace UUID.
-   Create the workspace first, then run 'kh tf version ls' to find the UUID.
+1. (HTTP backend) If backend.hcl still contains YOUR_WORKSPACE_UUID, replace it with
+   your workspace UUID. Create the workspace first, then run 'kh workspace ls' to find it.
+   The environment segment of the address must match an environment of the project.
 
 2. Set your API token:
 
@@ -242,6 +262,7 @@ func newInitProjectCmd() *cobra.Command {
 		backend  string
 		tfcOrg   string
 		tfcWs    string
+		khWs     string
 	)
 	cmd := &cobra.Command{
 		Use:   "project",
@@ -271,7 +292,8 @@ func newInitProjectCmd() *cobra.Command {
 					tfcWs = v
 				}
 			}
-			target, err := scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProj, force, backend, tfcOrg, tfcWs)
+			khWs = workspaceRefOrEnv(khWs, cfg)
+			target, err := scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProj, force, backend, tfcOrg, tfcWs, khWs)
 			if err != nil {
 				return err
 			}
@@ -280,12 +302,13 @@ func newInitProjectCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&name, "name", "n", "", "Human-friendly project name (required)")
-	cmd.Flags().StringVarP(&env, "env", "e", "", "Environment (e.g., dev, staging, prod) (required)")
+	cmd.Flags().StringVarP(&env, "env", "e", "", "Environment (e.g., dev, staging, prod); also the KeyHarbour environment in the backend address (required)")
 	cmd.Flags().StringVarP(&module, "module", "m", "infra", "Module/component name")
 	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "Base directory to scaffold into")
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "KeyHarbour API endpoint (defaults to KH_ENDPOINT or https://api.keyharbour.test)")
 	cmd.Flags().StringVar(&org, "org", "", "KeyHarbour organization (defaults to KH_ORG)")
 	cmd.Flags().StringVar(&khProj, "kh-project", "", "KeyHarbour project (defaults to KH_PROJECT)")
+	cmd.Flags().StringVar(&khWs, "workspace", "", "KeyHarbour workspace UUID for backend.hcl (defaults to KH_WORKSPACE; a placeholder is written when unset)")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing files")
 	cmd.Flags().StringVar(&backend, "backend", "http", "Backend type: http|cloud")
 	cmd.Flags().StringVar(&tfcOrg, "tfc-org", "", "Terraform Cloud organization (defaults to TF_CLOUD_ORGANIZATION)")

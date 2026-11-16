@@ -17,129 +17,11 @@ func TestStateCommand_HasExpectedSubcommands(t *testing.T) {
 	for _, sub := range cmd.Commands() {
 		seen[sub.Name()] = true
 	}
-	for _, want := range []string{"ls", "show", "lock", "unlock", "verify"} {
+	for _, want := range []string{"lock", "unlock", "verify"} {
 		if !seen[want] {
 			t.Fatalf("expected subcommand %s", want)
 		}
 	}
-}
-
-func TestStateLsCommand(t *testing.T) {
-	t.Run("json output", func(t *testing.T) {
-		useTempConfigHome(t)
-		outputFormat = "json"
-		defer func() { outputFormat = "" }()
-		srv := newStateCLITestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/api/v2/v1/states" {
-				http.NotFound(w, r)
-				return
-			}
-			if r.URL.Query().Get("project") != "proj" || r.URL.Query().Get("module") != "mod" || r.URL.Query().Get("workspace") != "ws" {
-				t.Fatalf("unexpected query: %s", r.URL.RawQuery)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"id":"state-1","project":"proj","module":"mod","workspace":"ws","size":42}]`))
-		})
-		defer srv.Close()
-
-		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-		t.Setenv("KH_TOKEN", "test-token")
-
-		buf := &bytes.Buffer{}
-		cmd := newStateLsCmd()
-		cmd.SetOut(buf)
-		cmd.SetErr(io.Discard)
-		cmd.SetArgs([]string{"--project", "proj", "--module", "mod", "--workspace", "ws"})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("state ls failed: %v", err)
-		}
-		if !strings.Contains(buf.String(), `"id": "state-1"`) {
-			t.Fatalf("unexpected output %q", buf.String())
-		}
-	})
-
-	t.Run("table output", func(t *testing.T) {
-		useTempConfigHome(t)
-		srv := newStateCLITestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"id":"state-1","project":"proj","module":"mod","workspace":"ws","size":42}]`))
-		})
-		defer srv.Close()
-		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-		t.Setenv("KH_TOKEN", "test-token")
-
-		buf := &bytes.Buffer{}
-		cmd := newStateLsCmd()
-		cmd.SetOut(buf)
-		cmd.SetErr(io.Discard)
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("state ls failed: %v", err)
-		}
-		if !strings.Contains(buf.String(), "PROJECT") || !strings.Contains(buf.String(), "state-1") {
-			t.Fatalf("unexpected output %q", buf.String())
-		}
-	})
-}
-
-func TestStateShowCommand(t *testing.T) {
-	t.Run("requires one arg", func(t *testing.T) {
-		cmd := newStateShowCmd()
-		if err := cmd.Args(cmd, nil); err == nil || !strings.Contains(err.Error(), "requires 1 argument") {
-			t.Fatalf("expected arg error, got %v", err)
-		}
-	})
-
-	t.Run("json output", func(t *testing.T) {
-		useTempConfigHome(t)
-		srv := newStateCLITestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/api/v2/v1/states/state-1" {
-				http.NotFound(w, r)
-				return
-			}
-			w.Header().Set("X-State-Meta", `{"id":"state-1","project":"proj"}`)
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"version":4}`))
-		})
-		defer srv.Close()
-		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-		t.Setenv("KH_TOKEN", "test-token")
-
-		buf := &bytes.Buffer{}
-		cmd := newStateShowCmd()
-		cmd.SetOut(buf)
-		cmd.SetErr(io.Discard)
-		cmd.SetArgs([]string{"state-1"})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("state show failed: %v", err)
-		}
-		if !strings.Contains(buf.String(), `"version": 4`) {
-			t.Fatalf("unexpected output %q", buf.String())
-		}
-	})
-
-	t.Run("meta output", func(t *testing.T) {
-		useTempConfigHome(t)
-		srv := newStateCLITestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-State-Meta", `{"id":"state-1","project":"proj","module":"mod","workspace":"ws","size":11}`)
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"version":4}`))
-		})
-		defer srv.Close()
-		t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-		t.Setenv("KH_TOKEN", "test-token")
-
-		buf := &bytes.Buffer{}
-		cmd := newStateShowCmd()
-		cmd.SetOut(buf)
-		cmd.SetErr(io.Discard)
-		cmd.SetArgs([]string{"state-1", "--meta"})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("state show failed: %v", err)
-		}
-		if !strings.Contains(buf.String(), `"id": "state-1"`) || !strings.Contains(buf.String(), `"project": "proj"`) {
-			t.Fatalf("unexpected output %q", buf.String())
-		}
-	})
 }
 
 func TestStatefilesCommand_HasExpectedSubcommands(t *testing.T) {
@@ -341,14 +223,6 @@ func TestStatefilesCommands(t *testing.T) {
 	})
 }
 
-func newStateCLITestServer(t *testing.T, statesHandler http.HandlerFunc) *httptest.Server {
-	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v2/v1/states", statesHandler)
-	mux.HandleFunc("/api/v2/v1/states/", statesHandler)
-	return httptest.NewServer(mux)
-}
-
 func newStatefilesCLITestServer(t *testing.T, published string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -448,41 +322,6 @@ func newStatefilesOpErrorServer(t *testing.T, operationPath string, status int) 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
-}
-
-// --- state ls error ---
-
-func TestStateLsAPIError(t *testing.T) {
-	useTempConfigHome(t)
-	srv := newStateCLITestServer(t, errorBody(http.StatusUnprocessableEntity))
-	defer srv.Close()
-	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-	t.Setenv("KH_TOKEN", "test-token")
-
-	cmd := newStateLsCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("expected error from ListStates")
-	}
-}
-
-// --- state show error ---
-
-func TestStateShowAPIError(t *testing.T) {
-	useTempConfigHome(t)
-	srv := newStateCLITestServer(t, errorBody(http.StatusUnprocessableEntity))
-	defer srv.Close()
-	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-	t.Setenv("KH_TOKEN", "test-token")
-
-	cmd := newStateShowCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1"})
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("expected error from GetStateRaw")
-	}
 }
 
 // --- statefiles ls ---
@@ -757,105 +596,5 @@ func TestStatefilesDeleteAllAPIError(t *testing.T) {
 	cmd.SetArgs([]string{"rm-all", "--project", "proj-uuid", "--workspace", "11111111-2222-3333-4444-555555555555", "--force"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error from DeleteStatefiles")
-	}
-}
-
-// --- lock ---
-
-func TestLockCmd_RequiresOneArg(t *testing.T) {
-	cmd := newLockCmd()
-	if err := cmd.Args(cmd, nil); err == nil || !strings.Contains(err.Error(), "lock requires 1 argument") {
-		t.Fatalf("expected arg error, got %v", err)
-	}
-	if err := cmd.Args(cmd, []string{"id"}); err != nil {
-		t.Fatalf("expected no error for one arg, got %v", err)
-	}
-}
-
-func TestLockCmd_NotImplemented(t *testing.T) {
-	cmd := newLockCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not-implemented error, got %v", err)
-	}
-}
-
-// --- unlock ---
-
-func TestUnlockCmd_RequiresOneArg(t *testing.T) {
-	cmd := newUnlockCmd()
-	if err := cmd.Args(cmd, nil); err == nil || !strings.Contains(err.Error(), "unlock requires 1 argument") {
-		t.Fatalf("expected arg error, got %v", err)
-	}
-	if err := cmd.Args(cmd, []string{"id"}); err != nil {
-		t.Fatalf("expected no error for one arg, got %v", err)
-	}
-}
-
-func TestUnlockCmd_NotImplemented(t *testing.T) {
-	cmd := newUnlockCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not-implemented error, got %v", err)
-	}
-}
-
-// --- verify ---
-
-func TestVerifyCmd_RequiresOneArg(t *testing.T) {
-	cmd := newVerifyCmd()
-	if err := cmd.Args(cmd, nil); err == nil || !strings.Contains(err.Error(), "verify requires 1 argument") {
-		t.Fatalf("expected arg error, got %v", err)
-	}
-	if err := cmd.Args(cmd, []string{"id"}); err != nil {
-		t.Fatalf("expected no error for one arg, got %v", err)
-	}
-}
-
-func TestVerifyCmd_NotImplementedWithoutFull(t *testing.T) {
-	cmd := newVerifyCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not implemented") {
-		t.Fatalf("expected not-implemented error, got %v", err)
-	}
-}
-
-func TestVerifyCmd_FullTableOutput(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newVerifyCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1", "--full"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("verify --full failed: %v", err)
-	}
-	if !strings.Contains(buf.String(), "state-1") || !strings.Contains(buf.String(), "ok") {
-		t.Errorf("expected table output with state-1 and ok, got: %s", buf.String())
-	}
-}
-
-func TestVerifyCmd_FullJSONOutput(t *testing.T) {
-	outputFormat = "json"
-	defer func() { outputFormat = "" }()
-
-	buf := &bytes.Buffer{}
-	cmd := newVerifyCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"state-1", "--full"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("verify --full json failed: %v", err)
-	}
-	if !strings.Contains(buf.String(), `"state_id"`) || !strings.Contains(buf.String(), `"ok": true`) {
-		t.Errorf("expected JSON output, got: %s", buf.String())
 	}
 }

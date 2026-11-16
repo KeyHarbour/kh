@@ -3,13 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
-	"kh/internal/output"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/output"
 
 	"github.com/spf13/cobra"
 )
@@ -142,8 +143,11 @@ func newProjectsCreateCmd() *cobra.Command {
 		Short: "Create a new project in an organization",
 		Long: `Create a new project under an organization.
 
-Requires --org (organization UUID) or KH_ORG, a positional name argument, and
-at least one --environment.
+Requires --org (organization UUID) or KH_ORG and a positional name argument.
+
+--environment names environments to attach. The KeyHarbour API does not apply
+them yet (KeyHarbour/KeyHarbourApi#19): kh checks the created project and warns
+when they are missing, in which case add them in the KeyHarbour web app.
 
 Examples:
   kh project create my-project --org <org-uuid> --environment production
@@ -155,9 +159,6 @@ Examples:
 			orgRef := orgUUID(org, cfg)
 			if orgRef == "" {
 				return kherrors.ErrMissingFlag.New("--org is required (or set KH_ORG)")
-			}
-			if len(environments) == 0 {
-				return kherrors.ErrMissingFlag.New("at least one --environment is required")
 			}
 			client := khclient.New(cfg)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -173,9 +174,10 @@ Examples:
 			}
 			uuid := proj.UUID
 			if uuid == "" {
-				uuid = "(see server)"
+				uuid = "unknown, run 'kh project ls' to find it"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Project %q created (uuid: %s).\n", proj.Name, uuid)
+			warnUnappliedEnvironments(ctx, client, cmd.ErrOrStderr(), proj.UUID, environments)
 			return nil
 		},
 	}
@@ -193,9 +195,10 @@ func newProjectsUpdateCmd() *cobra.Command {
 		Short: "Update a project's name or environments",
 		Long: `Update the name and environment list of an existing project.
 
-The API requires both --name and at least one --environment to be provided.
-To keep the current name or environments, fetch them first with 'kh project show'
-and pass the same values.
+Only the flags you pass are sent; everything else is left as it is.
+--environment replaces the full environment list. The KeyHarbour API does not
+apply environment names yet (KeyHarbour/KeyHarbourApi#19): kh checks the
+project afterwards and warns when they are missing.
 
 Examples:
   kh project update <uuid> --name new-name --environment production
@@ -215,20 +218,12 @@ Examples:
 				return err
 			}
 
-			// Fill in unchanged fields from the current project state.
-			if current, err := client.GetProject(ctx, proj.UUID); err == nil {
-				if !cmd.Flags().Changed("name") {
-					name = current.Name
-				}
-				if !cmd.Flags().Changed("environment") {
-					environments = current.Environments
-				}
+			if cmd.Flags().Changed("name") && strings.TrimSpace(name) == "" {
+				return kherrors.ErrInvalidValue.New("--name cannot be empty")
 			}
-
-			if len(environments) == 0 {
-				return kherrors.ErrMissingFlag.New("at least one --environment is required (or the current project has none)")
+			if cmd.Flags().Changed("environment") && len(environments) == 0 {
+				return kherrors.ErrInvalidValue.New("--environment cannot be empty")
 			}
-
 			if err := client.UpdateProject(ctx, proj.UUID, khclient.UpdateProjectRequest{
 				Name:             name,
 				EnvironmentNames: environments,
@@ -236,10 +231,50 @@ Examples:
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Project %q updated.\n", proj.UUID)
+			warnUnappliedEnvironments(ctx, client, cmd.ErrOrStderr(), proj.UUID, environments)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "New project name")
 	cmd.Flags().StringArrayVar(&environments, "environment", nil, "Environment name (repeatable); replaces the full list")
 	return cmd
+}
+
+// warnUnappliedEnvironments re-reads the project and warns on w when any of
+// the requested environments are missing. The KeyHarbour API currently
+// accepts environments only as internal IDs and silently ignores names, so
+// without this check create and update would report a success that did not
+// happen.
+func warnUnappliedEnvironments(ctx context.Context, client *khclient.Client, w io.Writer, projectUUID string, requested []string) {
+	if len(requested) == 0 {
+		return
+	}
+	if projectUUID == "" {
+		fmt.Fprintf(w, "warning: could not check that environments %s were applied: the project UUID is unknown\n", strings.Join(requested, ", "))
+		return
+	}
+	proj, err := client.GetProject(ctx, projectUUID)
+	if err != nil {
+		fmt.Fprintf(w, "warning: could not check that environments %s were applied: %v\n", strings.Join(requested, ", "), err)
+		return
+	}
+	if missing := missingEnvironments(requested, proj.Environments); len(missing) > 0 {
+		fmt.Fprintf(w, "warning: environments not applied: %s. The KeyHarbour API does not accept environment names yet (KeyHarbour/KeyHarbourApi#19); add them to the project in the KeyHarbour web app.\n", strings.Join(missing, ", "))
+	}
+}
+
+// missingEnvironments returns the requested names absent from actual,
+// compared case-insensitively as the API does.
+func missingEnvironments(requested, actual []string) []string {
+	have := make(map[string]bool, len(actual))
+	for _, a := range actual {
+		have[strings.ToLower(a)] = true
+	}
+	var missing []string
+	for _, r := range requested {
+		if !have[strings.ToLower(r)] {
+			missing = append(missing, r)
+		}
+	}
+	return missing
 }

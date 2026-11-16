@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestGetProject(t *testing.T) {
@@ -26,6 +27,48 @@ func TestGetProject(t *testing.T) {
 	}
 	if proj.UUID != "p-1" || proj.Name != "project-one" {
 		t.Fatalf("unexpected project: %+v", proj)
+	}
+}
+
+// KeyHarbourApi's show returns {"name", "environments"}: no uuid, and the
+// environment list under "environments" rather than "environment_names".
+func TestGetProject_DecodesAPIShape(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"name":"demo","environments":["production","staging"]}`)
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	proj, err := client.GetProject(context.Background(), "p-1")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if proj.UUID != "p-1" || proj.Name != "demo" {
+		t.Fatalf("unexpected project: %+v", proj)
+	}
+	if strings.Join(proj.Environments, ",") != "production,staging" {
+		t.Fatalf("environments were dropped: %+v", proj.Environments)
+	}
+	out, _ := json.Marshal(proj)
+	if !strings.Contains(string(out), `"environment_names":["production","staging"]`) {
+		t.Fatalf("JSON output must keep the environment_names key, got %s", out)
+	}
+}
+
+func TestProjectUnmarshal_EnvironmentKeys(t *testing.T) {
+	tests := map[string]string{
+		"environment_names": `{"uuid":"p","environment_names":["prod"]}`,
+		"environments":      `{"uuid":"p","environments":["prod"]}`,
+		"both, spec wins":   `{"uuid":"p","environment_names":["prod"],"environments":["other"]}`,
+	}
+	for name, body := range tests {
+		var p Project
+		if err := json.Unmarshal([]byte(body), &p); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if p.UUID != "p" || len(p.Environments) != 1 || p.Environments[0] != "prod" {
+			t.Errorf("%s: got %+v", name, p)
+		}
 	}
 }
 
@@ -503,23 +546,36 @@ func TestListProjects_ServerError(t *testing.T) {
 	}
 }
 
+// KeyHarbourApi answers a create with {"status":"updated"} and no UUID, and
+// project names are not unique, so the new project must be told apart from an
+// existing one with the same name.
 func TestCreateProject(t *testing.T) {
 	var gotBody []byte
+	created := false
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
 		if r.URL.Path != "/organizations/org-1/projects" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		var err error
-		gotBody, err = io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(Project{UUID: "p-new", Name: "my-project"})
+		switch r.Method {
+		case http.MethodGet:
+			projects := []Project{{UUID: "p-old", Name: "my-project"}}
+			if created {
+				projects = append(projects, Project{UUID: "p-new", Name: "my-project"})
+			}
+			json.NewEncoder(w).Encode(projects)
+		case http.MethodPost:
+			var err error
+			gotBody, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			created = true
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, `{"status":"updated"}`)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
 	})
 
 	client := New(config.Config{Endpoint: srv.URL})
@@ -531,7 +587,7 @@ func TestCreateProject(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if proj.UUID != "p-new" || proj.Name != "my-project" {
-		t.Fatalf("unexpected project: %+v", proj)
+		t.Fatalf("expected the newly created project p-new, got %+v", proj)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(gotBody, &m); err != nil {
@@ -540,6 +596,49 @@ func TestCreateProject(t *testing.T) {
 	inner, _ := m["project"].(map[string]any)
 	if inner == nil || inner["name"] != "my-project" {
 		t.Fatalf("expected project.name in body, got: %s", gotBody)
+	}
+}
+
+func TestCreateProject_ListingFailsReturnsWithoutUUID(t *testing.T) {
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, `{"status":"updated"}`)
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	proj, err := client.CreateProject(context.Background(), "org-1", CreateProjectRequest{Name: "my-project"})
+	if err != nil {
+		t.Fatalf("a failed lookup must not fail the create, got %v", err)
+	}
+	if proj.UUID != "" || proj.Name != "my-project" {
+		t.Fatalf("unexpected project: %+v", proj)
+	}
+}
+
+func TestNewProjectUUID(t *testing.T) {
+	after := []Project{{UUID: "a", Name: "web"}, {UUID: "b", Name: "web"}, {UUID: "c", Name: "api"}}
+	tests := []struct {
+		name     string
+		existing map[string]bool
+		want     string
+	}{
+		{"new duplicate name told apart", map[string]bool{"a": true, "c": true}, "b"},
+		{"no listing before, ambiguous name", nil, ""},
+		{"nothing new", map[string]bool{"a": true, "b": true, "c": true}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := newProjectUUID(after, tt.existing, "web"); got != tt.want {
+				t.Errorf("newProjectUUID = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := newProjectUUID(after, nil, "api"); got != "c" {
+		t.Errorf("unique name without a prior listing = %q, want c", got)
 	}
 }
 
@@ -564,6 +663,8 @@ func TestCreateProject_ServerError(t *testing.T) {
 	}
 }
 
+// KeyHarbourApi reads params.expect(project: [...]), so the body must be
+// wrapped in "project"; an unwrapped body is rejected with 400.
 func TestUpdateProject(t *testing.T) {
 	var gotBody []byte
 	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
@@ -590,16 +691,34 @@ func TestUpdateProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	var m map[string]any
+	var m struct {
+		Project map[string]any `json:"project"`
+	}
 	if err := json.Unmarshal(gotBody, &m); err != nil {
 		t.Fatalf("invalid body JSON: %v", err)
 	}
-	if m["name"] != "new-name" {
-		t.Fatalf("expected name=new-name in body, got: %s", gotBody)
+	if m.Project == nil || m.Project["name"] != "new-name" {
+		t.Fatalf("expected project.name=new-name in body, got: %s", gotBody)
 	}
-	// UpdateProject sends the body directly — no wrapper object
-	if _, hasProject := m["project"]; hasProject {
-		t.Fatalf("UpdateProject should NOT wrap in a 'project' key, got: %s", gotBody)
+	if envs, _ := m.Project["environment_names"].([]any); len(envs) != 1 || envs[0] != "production" {
+		t.Fatalf("expected project.environment_names in body, got: %s", gotBody)
+	}
+}
+
+func TestUpdateProject_SendsOnlySetFields(t *testing.T) {
+	var gotBody string
+	srv := newIPv4Server(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	client := New(config.Config{Endpoint: srv.URL})
+	if err := client.UpdateProject(context.Background(), "p-1", UpdateProjectRequest{Name: "renamed"}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if gotBody != `{"project":{"name":"renamed"}}` {
+		t.Fatalf("a rename must not send environment_names, got: %s", gotBody)
 	}
 }
 

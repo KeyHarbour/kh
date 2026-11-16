@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
-	"kh/internal/output"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/output"
 
 	"github.com/spf13/cobra"
 )

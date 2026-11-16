@@ -17,7 +17,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X kh/pkg/version.Version={{.Version}}
+      - -X github.com/KeyHarbour/kh/pkg/version.Version={{.Version}}
     hooks:
       post:
         # Sign and notarize darwin binaries. The script is a no-op for non-darwin

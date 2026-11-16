@@ -11,7 +11,7 @@ import (
 // contents of the generated files indexed by base filename.
 func scaffoldAndRead(t *testing.T, dir, name, env, module, endpoint, org, khProject string, force bool, backendType, tfcOrg, tfcWs string) (target string, files map[string]string, err error) {
 	t.Helper()
-	target, err = scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject, force, backendType, tfcOrg, tfcWs)
+	target, err = scaffoldTerraformProject(dir, name, env, module, endpoint, org, khProject, force, backendType, tfcOrg, tfcWs, "")
 	if err != nil {
 		return target, nil, err
 	}
@@ -33,28 +33,28 @@ func scaffoldAndRead(t *testing.T, dir, name, env, module, endpoint, org, khProj
 // --- Validation ---
 
 func TestScaffold_MissingName(t *testing.T) {
-	_, err := scaffoldTerraformProject(t.TempDir(), "", "dev", "infra", "", "", "", false, "http", "", "")
+	_, err := scaffoldTerraformProject(t.TempDir(), "", "dev", "infra", "", "", "", false, "http", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "name is required") {
 		t.Fatalf("expected name-required error, got %v", err)
 	}
 }
 
 func TestScaffold_MissingEnv(t *testing.T) {
-	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "", "infra", "", "", "", false, "http", "", "")
+	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "", "infra", "", "", "", false, "http", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "env is required") {
 		t.Fatalf("expected env-required error, got %v", err)
 	}
 }
 
 func TestScaffold_UnsupportedBackend(t *testing.T) {
-	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "s3", "", "")
+	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "s3", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "unsupported backend") {
 		t.Fatalf("expected unsupported-backend error, got %v", err)
 	}
 }
 
 func TestScaffold_CloudBackend_MissingOrg(t *testing.T) {
-	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "cloud", "", "")
+	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "cloud", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "--tfc-org") {
 		t.Fatalf("expected tfc-org error, got %v", err)
 	}
@@ -90,7 +90,44 @@ func TestScaffold_HTTP_DirectoryLayout(t *testing.T) {
 	}
 }
 
-func TestScaffold_HTTP_BackendHCL_ContainsEndpointAndV2Path(t *testing.T) {
+// The generated config must match the Terraform HTTP backend routes served by
+// KeyHarbourApi (Statefiles::V1::StatefilesController): GET/POST read and write,
+// PUT locks and DELETE unlocks, all on /statefiles/v1/:workspace_uuid/:environment
+// at the host root.
+func TestScaffold_HTTP_BackendHCL_MatchesAPIRoutes(t *testing.T) {
+	const ws = "0b5c3f7e-6a1d-4c2b-9e8f-1a2b3c4d5e6f"
+	dir := t.TempDir()
+	_, err := scaffoldTerraformProject(dir, "myapp", "prod", "infra", "https://api.example.com/api/v2/", "", "", false, "http", "", "", ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "infra", "prod", "backend.hcl"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	hcl := string(data)
+
+	addr := "https://api.example.com/statefiles/v1/" + ws + "/prod"
+	for _, want := range []string{
+		`address        = "` + addr + `"`,
+		`lock_address   = "` + addr + `"`,
+		`unlock_address = "` + addr + `"`,
+		`lock_method    = "PUT"`,
+		`unlock_method  = "DELETE"`,
+		`username       = "kh"`,
+	} {
+		if !strings.Contains(hcl, want) {
+			t.Errorf("backend.hcl missing %s, got:\n%s", want, hcl)
+		}
+	}
+	for _, bad := range []string{"/api/v2", "YOUR_WORKSPACE_UUID", "/state/lock"} {
+		if strings.Contains(hcl, bad) {
+			t.Errorf("backend.hcl should not contain %q, got:\n%s", bad, hcl)
+		}
+	}
+}
+
+func TestScaffold_HTTP_BackendHCL_PlaceholderWithoutWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	_, files, err := scaffoldAndRead(t, dir, "myapp", "dev", "infra", "https://api.example.com", "", "proj-abc", false, "http", "", "")
 	if err != nil {
@@ -98,14 +135,62 @@ func TestScaffold_HTTP_BackendHCL_ContainsEndpointAndV2Path(t *testing.T) {
 	}
 
 	hcl := files["backend.hcl"]
-	if !strings.Contains(hcl, "https://api.example.com") {
-		t.Errorf("backend.hcl missing endpoint, got:\n%s", hcl)
+	if !strings.Contains(hcl, `address        = "https://api.example.com/statefiles/v1/YOUR_WORKSPACE_UUID/dev"`) {
+		t.Errorf("backend.hcl should use the UUID placeholder, got:\n%s", hcl)
 	}
-	if !strings.Contains(hcl, "/workspaces/") {
-		t.Errorf("backend.hcl missing V2 workspace path, got:\n%s", hcl)
+	if !strings.HasPrefix(hcl, "# Replace YOUR_WORKSPACE_UUID") {
+		t.Errorf("backend.hcl should explain the placeholder, got:\n%s", hcl)
 	}
-	if !strings.Contains(hcl, "YOUR_WORKSPACE_UUID") {
-		t.Errorf("backend.hcl missing UUID placeholder, got:\n%s", hcl)
+}
+
+func TestScaffold_HTTP_InvalidWorkspaceUUID(t *testing.T) {
+	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "http", "", "", "not-a-uuid")
+	if err == nil || !strings.Contains(err.Error(), "not a valid UUID") {
+		t.Fatalf("expected invalid-UUID error, got %v", err)
+	}
+}
+
+func TestScaffold_Cloud_IgnoresWorkspaceUUID(t *testing.T) {
+	_, err := scaffoldTerraformProject(t.TempDir(), "myapp", "dev", "infra", "", "", "", false, "cloud", "my-org", "", "not-a-uuid")
+	if err != nil {
+		t.Fatalf("cloud backend should not validate the KeyHarbour workspace, got %v", err)
+	}
+}
+
+func TestTerraformBackendAddress(t *testing.T) {
+	tests := []struct {
+		endpoint, ws, env, want string
+	}{
+		{"https://app.keyharbour.ca/api/v2", "ws-1", "prod", "https://app.keyharbour.ca/statefiles/v1/ws-1/prod"},
+		{"https://app.keyharbour.ca/api/v2/", "ws-1", "prod", "https://app.keyharbour.ca/statefiles/v1/ws-1/prod"},
+		{"https://app.keyharbour.ca", "ws-1", "prod", "https://app.keyharbour.ca/statefiles/v1/ws-1/prod"},
+		{"https://kh.internal/base/api/v2", "ws-1", "my env", "https://kh.internal/base/statefiles/v1/ws-1/my%20env"},
+	}
+	for _, tt := range tests {
+		if got := terraformBackendAddress(tt.endpoint, tt.ws, tt.env); got != tt.want {
+			t.Errorf("terraformBackendAddress(%q, %q, %q) = %q, want %q", tt.endpoint, tt.ws, tt.env, got, tt.want)
+		}
+	}
+}
+
+func TestNewInitProjectCmd_WorkspaceFromEnv(t *testing.T) {
+	const ws = "0b5c3f7e-6a1d-4c2b-9e8f-1a2b3c4d5e6f"
+	t.Setenv("KH_WORKSPACE", ws)
+
+	dir := t.TempDir()
+	cmd := newInitProjectCmd()
+	cmd.SetOut(&strings.Builder{})
+	cmd.SetArgs([]string{"--name", "testapp", "--env", "staging", "--dir", dir, "--endpoint", "https://api.example.com"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+
+	hcl, err := os.ReadFile(filepath.Join(dir, "infra", "staging", "backend.hcl"))
+	if err != nil {
+		t.Fatalf("backend.hcl not created: %v", err)
+	}
+	if !strings.Contains(string(hcl), "https://api.example.com/statefiles/v1/"+ws+"/staging") {
+		t.Errorf("backend.hcl should use KH_WORKSPACE, got:\n%s", hcl)
 	}
 }
 
@@ -245,13 +330,13 @@ func TestScaffold_GitIgnore_ExcludesTerraformDir(t *testing.T) {
 func TestScaffold_RefusesOverwriteWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	// First scaffold
-	_, err := scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "")
+	_, err := scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "", "")
 	if err != nil {
 		t.Fatalf("first scaffold failed: %v", err)
 	}
 
 	// Second scaffold without --force
-	_, err = scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "")
+	_, err = scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 		t.Fatalf("expected overwrite refusal, got %v", err)
 	}
@@ -260,13 +345,13 @@ func TestScaffold_RefusesOverwriteWithoutForce(t *testing.T) {
 func TestScaffold_ForceOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	// First scaffold
-	_, err := scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "")
+	_, err := scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", false, "http", "", "", "")
 	if err != nil {
 		t.Fatalf("first scaffold failed: %v", err)
 	}
 
 	// Second scaffold with --force
-	_, err = scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", true, "http", "", "")
+	_, err = scaffoldTerraformProject(dir, "myapp", "dev", "infra", "", "", "", true, "http", "", "", "")
 	if err != nil {
 		t.Errorf("force overwrite failed: %v", err)
 	}

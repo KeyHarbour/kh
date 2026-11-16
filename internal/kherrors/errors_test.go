@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"kh/internal/exitcodes"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/exitcodes"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 // ── Exit-code mapping ──────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ func TestExitCodeMapping(t *testing.T) {
 		{kherrors.ErrInvalidWorkspaceName, exitcodes.ValidationError},
 		{kherrors.ErrConflictingFlags, exitcodes.ValidationError},
 		{kherrors.ErrResourceConflict, exitcodes.ValidationError},
+		{kherrors.ErrStateVerifyFailed, exitcodes.ValidationError},
 		{kherrors.ErrMissingToken, exitcodes.AuthError},
 		{kherrors.ErrTokenInvalid, exitcodes.AuthError},
 		{kherrors.ErrForbidden, exitcodes.AuthError},

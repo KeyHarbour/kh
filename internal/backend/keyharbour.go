@@ -3,8 +3,9 @@ package backend
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	"kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/khclient"
 )
 
 // KeyHarbourReader reads state from KeyHarbour
@@ -71,6 +72,16 @@ func (r *KeyHarbourReader) List(ctx context.Context) ([]Object, error) {
 	}
 
 	return objs, nil
+}
+
+// WorkspaceUUID resolves the source workspace, which may be given by name or UUID.
+func (r *KeyHarbourReader) WorkspaceUUID(ctx context.Context) (string, error) {
+	projectUUID, err := r.resolveProject(ctx)
+	if err != nil {
+		return "", err
+	}
+	workspaceUUID, _, err := r.resolveWorkspace(ctx, projectUUID)
+	return workspaceUUID, err
 }
 
 func (r *KeyHarbourReader) Get(ctx context.Context, key string) ([]byte, Object, error) {
@@ -186,8 +197,9 @@ func (w *KeyHarbourWriter) resolveWorkspace(ctx context.Context, name string) (*
 		return nil, fmt.Errorf("failed to list workspaces: %w", err)
 	}
 
+	// Match by name or UUID, as the reader does.
 	for _, ws := range workspaces {
-		if ws.Name == name {
+		if ws.Name == name || strings.EqualFold(ws.UUID, name) {
 			return &ws, nil
 		}
 	}

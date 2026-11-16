@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 func TestSyncCmd_Local_Success(t *testing.T) {
@@ -459,5 +459,50 @@ func TestSyncCmd_ObjectDeletedBetweenListAndGet(t *testing.T) {
 	}
 	if strings.Contains(out, "failed to read") {
 		t.Errorf("should not report a generic read failure, got %q", out)
+	}
+}
+
+func TestWriteBackendSample_MatchesAPIRoutes(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "kh_backend.tf.sample")
+	if err := writeBackendSample(out, "https://api.example.com/api/v2", "ws-uuid", "prod"); err != nil {
+		t.Fatalf("writeBackendSample: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	sample := string(data)
+
+	addr := "https://api.example.com/statefiles/v1/ws-uuid/prod"
+	for _, want := range []string{
+		`address        = "` + addr + `"`,
+		`lock_address   = "` + addr + `"`,
+		`unlock_address = "` + addr + `"`,
+		`lock_method    = "PUT"`,
+		`unlock_method  = "DELETE"`,
+	} {
+		if !strings.Contains(sample, want) {
+			t.Errorf("sample missing %s, got:\n%s", want, sample)
+		}
+	}
+	if strings.Contains(sample, environmentPlaceholder) {
+		t.Errorf("sample should not mention the environment placeholder, got:\n%s", sample)
+	}
+}
+
+func TestWriteBackendSample_EnvironmentPlaceholder(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "kh_backend.tf.sample")
+	if err := writeBackendSample(out, "https://api.example.com/api/v2", "ws-uuid", ""); err != nil {
+		t.Fatalf("writeBackendSample: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "/statefiles/v1/ws-uuid/"+environmentPlaceholder+`"`) {
+		t.Errorf("sample should use the environment placeholder, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "Replace "+environmentPlaceholder) {
+		t.Errorf("sample should explain the environment placeholder, got:\n%s", data)
 	}
 }

@@ -1,24 +1,9 @@
 package khclient
 
-import "time"
-
-type StateMeta struct {
-	ID        string    `json:"id"`
-	Project   string    `json:"project"`
-	Module    string    `json:"module"`
-	Workspace string    `json:"workspace"`
-	Lineage   string    `json:"lineage"`
-	Serial    int       `json:"serial"`
-	Size      int64     `json:"size"`
-	Checksum  string    `json:"checksum"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type ListStatesRequest struct {
-	Project   string `json:"project,omitempty"`
-	Module    string `json:"module,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
-}
+import (
+	"encoding/json"
+	"time"
+)
 
 type Statefile struct {
 	UUID        string    `json:"uuid"`
@@ -38,15 +23,35 @@ type Project struct {
 	Environments []string `json:"environment_names,omitempty"`
 }
 
+// UnmarshalJSON accepts the environment list as "environments", which
+// KeyHarbourApi returns, or "environment_names", which the OpenAPI spec
+// documents (KeyHarbour/KeyHarbourApi#19). Output keeps "environment_names".
+func (p *Project) UnmarshalJSON(b []byte) error {
+	type plain Project
+	var aux struct {
+		plain
+		APIEnvironments []string `json:"environments"`
+	}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	*p = Project(aux.plain)
+	if len(p.Environments) == 0 {
+		p.Environments = aux.APIEnvironments
+	}
+	return nil
+}
+
 type CreateProjectRequest struct {
 	Name             string   `json:"name"`
 	Description      string   `json:"description,omitempty"`
-	EnvironmentNames []string `json:"environment_names"`
+	EnvironmentNames []string `json:"environment_names,omitempty"`
 }
 
+// UpdateProjectRequest only sends the fields that are set.
 type UpdateProjectRequest struct {
-	Name             string   `json:"name"`
-	EnvironmentNames []string `json:"environment_names"`
+	Name             string   `json:"name,omitempty"`
+	EnvironmentNames []string `json:"environment_names,omitempty"`
 }
 
 type Workspace struct {

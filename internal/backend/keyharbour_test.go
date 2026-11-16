@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/config"
-	"kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
 )
 
 func TestKeyHarbourReaderList_WithSpecificStatefile(t *testing.T) {
@@ -350,6 +350,32 @@ func TestKeyHarbourWriterPut_ExistingWorkspace(t *testing.T) {
 	}
 	if obj.URL != "/workspaces/ws-1/statefiles" {
 		t.Fatalf("unexpected URL %s", obj.URL)
+	}
+}
+
+func TestKeyHarbourWriterPut_ExistingWorkspaceByUUID(t *testing.T) {
+	const wsUUID = "0b5c3f7e-6a1d-4c2b-9e8f-1a2b3c4d5e6f"
+	var posted bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/projects/proj-1/workspaces":
+			writeJSON(t, w, []khclient.Workspace{{UUID: wsUUID, Name: "prod"}})
+		case "/workspaces/" + wsUUID + "/statefiles":
+			posted = true
+			writeJSONStatus(t, w, http.StatusCreated, khclient.StatefileCreatedResponse{Status: "accepted"})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	writer := NewKeyHarbourWriter(newTestKHClient(srv.URL), "proj-1", "", false)
+	if _, err := writer.Put(context.Background(), strings.ToUpper(wsUUID), []byte("{}"), true); err != nil {
+		t.Fatalf("Put error: %v", err)
+	}
+	if !posted {
+		t.Fatal("expected the statefile to be written to the workspace matched by UUID")
 	}
 }
 
