@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"kh/internal/exitcodes"
-	"kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/exitcodes"
+	"github.com/KeyHarbour/kh/internal/kherrors"
 )
 
 func TestValidateAndSanitizeWorkspaceName(t *testing.T) {

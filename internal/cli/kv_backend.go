@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/khclient"
 )
 
 const (

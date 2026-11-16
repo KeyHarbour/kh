@@ -100,10 +100,22 @@ kh tf init \
   --name "demo-infra" \
   --env "production" \
   --module "aws-vpc" \
+  --workspace <workspace-uuid> \
   --backend http
 ```
 
-This generates `backend.tf` and `backend.hcl` pre-configured for your project.
+This generates `backend.tf` and `backend.hcl` pre-configured for your project. The generated `backend.hcl` points Terraform at the KeyHarbour state backend:
+
+```hcl
+address        = "https://app.keyharbour.ca/statefiles/v1/<workspace-uuid>/production"
+lock_address   = "https://app.keyharbour.ca/statefiles/v1/<workspace-uuid>/production"
+unlock_address = "https://app.keyharbour.ca/statefiles/v1/<workspace-uuid>/production"
+lock_method    = "PUT"
+unlock_method  = "DELETE"
+username       = "kh"
+```
+
+`--env` must match an environment of your KeyHarbour project. `--workspace` defaults to `KH_WORKSPACE`; without either, `backend.hcl` contains a `YOUR_WORKSPACE_UUID` placeholder to replace. Supply your token with `export TF_HTTP_PASSWORD=<your-kh-token>`, then run `terraform init -backend-config=backend.hcl`.
 
 ---
 
@@ -141,31 +153,45 @@ kh tf sync --from=keyharbour --kh-src-project <proj1> --kh-src-workspace <ws1-uu
 # Dry-run: preview what will be synced without writing
 kh tf sync --from=tfc --tfc-src-org <org> --tfc-src-workspace <ws> --dry-run
 
-# Generate backend.hcl after a successful sync
+# Generate kh_backend.tf.sample after a successful sync
 kh tf sync --from=local --local-path ./terraform.tfstate --kh-project <uuid> --kh-workspace <workspace-uuid> \
-  --kh-gen-backend
+  --kh-gen-backend --kh-env production
+
+# Hold the Terraform state lock on the destination workspace for the whole run
+kh tf sync --from=local --local-path ./terraform.tfstate --kh-project <uuid> --kh-workspace <workspace-uuid> \
+  --kh-env production --lock
 ```
 
 **Notes:**
 
 - Use `{workspace}` and `{key}` placeholders in `--local-out` for batch `--to=local` exports.
 - TFC authentication uses `TF_API_TOKEN` or `TF_TOKEN_app_terraform_io` env vars (or `--tfc-src-token` / `--tfc-dest-token` flags).
+- `--lock` locks every KeyHarbour workspace the run reads from or writes to, before anything is listed, and releases them at the end. It needs `--kh-src-env` for a KeyHarbour source, and `--kh-workspace <workspace-uuid>` plus `--kh-env` for a KeyHarbour destination.
 
 ---
 
-### State Operations (`kh tf state`)
+### State Locking and Verification (`kh tf state`)
+
+Locks use the same Terraform state lock as `terraform plan` and `apply`, and cover the whole workspace. `--environment` must name an environment of the workspace's project.
 
 ```zsh
-# List all states
-kh tf state ls
-kh tf state ls --project <uuid> --workspace <workspace-uuid>
+# Lock a workspace (prints the lock ID)
+kh tf state lock --workspace <workspace-uuid> --environment prod --reason "maintenance"
 
-# Show a state's full Terraform JSON (default)
-kh tf state show <state-id>
+# Release it; kh refuses if a different lock is held
+kh tf state unlock --workspace <workspace-uuid> --environment prod <lock-id>
 
-# Show metadata summary only
-kh tf state show <state-id> --meta
+# Release whatever lock is held
+kh tf state unlock --workspace <workspace-uuid> --environment prod --force
+
+# Check the latest statefile is a well-formed Terraform v4 state
+kh tf state verify --workspace <workspace-uuid>
+
+# Check a specific version matches a local state file (lineage, serial, SHA256)
+kh tf state verify <statefile-uuid> --against ./terraform.tfstate
 ```
+
+To list or read statefiles, use `kh tf version` below.
 
 ---
 
@@ -210,10 +236,13 @@ kh project show <project-uuid>
 kh project show <project-uuid> --output json
 kh project create <name> --org <org-uuid> --environment production
 kh project create <name> --org <org-uuid> --environment production --environment staging --description "..."
-kh project update <project-uuid> --name new-name --environment production
+kh project update <project-uuid> --name new-name
+kh project update <project-uuid> --environment production --environment staging
 ```
 
 `--org` accepts the organization UUID; falls back to `KH_ORG`.
+
+`update` sends only the flags you pass, so a rename leaves environments alone, and `--environment` replaces the whole list. The KeyHarbour API does not apply environment names on `create` or `update` yet ([KeyHarbourApi#19](https://github.com/KeyHarbour/KeyHarbourApi/issues/19)). `kh` checks the project afterwards and prints a warning when they are missing; until the API is fixed, add environments in the KeyHarbour web app.
 
 ---
 

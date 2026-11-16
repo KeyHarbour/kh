@@ -13,13 +13,14 @@ package kherrors
 // │ KH-VAL-003   │ validation │  3   │ Workspace name contains invalid characters     │ Use alphanumeric names with hyphens only      │
 // │ KH-VAL-004   │ validation │  3   │ Two mutually exclusive flags were both set     │ Remove one of the conflicting flags           │
 // │ KH-VAL-005   │ validation │  3   │ Resource already exists (conflict on create)   │ Use the update command instead                │
+// │ KH-VAL-006   │ validation │  3   │ Stored state failed integrity verification     │ Inspect it with kh tf version get             │
 // │ KH-AUTH-001  │ auth       │  4   │ No API token is configured                     │ Run kh login or set KH_TOKEN                  │
 // │ KH-AUTH-002  │ auth       │  4   │ API token was rejected (HTTP 401)              │ Re-authenticate; check token has not expired  │
 // │ KH-PERM-001  │ permission │  4   │ Token lacks permission for this operation (403)│ Request access from your administrator        │
 // │ KH-NET-001   │ network    │  5   │ Backend I/O or connection failure              │ Check connectivity and retry                  │
 // │ KH-NET-002   │ network    │  5   │ KeyHarbour API returned a server error (5xx)   │ Check server health; retry after a delay      │
 // │ KH-NF-001    │ not-found  │  1   │ The requested resource does not exist          │ Verify the UUID or name and check it exists   │
-// │ KH-CONF-001  │ conflict   │  6   │ State lock held by another process             │ Wait or force-unlock with kh tf unlock        │
+// │ KH-CONF-001  │ conflict   │  6   │ State lock held by another process             │ Wait, or release it with kh tf state unlock   │
 // │ KH-PART-001  │ partial    │  2   │ Some operations in a batch failed              │ Inspect failure details and retry failed items│
 // │ KH-INT-001   │ internal   │  1   │ Unexpected internal error                      │ Report at github.com/KeyHarbour/kh/issues     │
 // │ KH-INT-002   │ internal   │  1   │ CLI configuration failed to load               │ Check ~/.kh/config and environment variables  │
@@ -62,6 +63,13 @@ var ErrResourceConflict = ErrorDef{
 	Code:     "KH-VAL-005",
 	Category: CategoryValidation,
 	hint:     "the resource already exists; use the update command to modify it",
+}
+
+// ErrStateVerifyFailed is used when a stored state fails 'kh tf state verify'.
+var ErrStateVerifyFailed = ErrorDef{
+	Code:     "KH-VAL-006",
+	Category: CategoryValidation,
+	hint:     "the stored state failed integrity checks; inspect it with 'kh tf version get <statefile-uuid>'",
 }
 
 // Auth errors
@@ -124,7 +132,7 @@ var ErrNotFound = ErrorDef{
 var ErrStateLocked = ErrorDef{
 	Code:     "KH-CONF-001",
 	Category: CategoryConflict,
-	hint:     "another process holds the state lock; wait for it to finish or force-unlock with 'kh tf unlock'",
+	hint:     "another process holds the state lock; wait for it to finish or release it with 'kh tf state unlock <lock-id>'",
 }
 
 // Partial failure

@@ -2,14 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
-	internalconfig "kh/internal/config"
+	internalconfig "github.com/KeyHarbour/kh/internal/config"
+
+	"github.com/spf13/cobra"
 )
 
 func TestLoginCommand_RequiresTokenOrDevice(t *testing.T) {
@@ -299,24 +304,167 @@ func TestProjectsCreateCommand_RequiresOrg(t *testing.T) {
 	}
 }
 
-func TestProjectsCreateCommand_RequiresEnvironment(t *testing.T) {
-	useTempConfigHome(t)
+// fakeProjectsAPI answers like KeyHarbourApi's ProjectsController: create
+// returns {"status":"updated"} without a UUID, show returns {"name",
+// "environments"} without a UUID, PATCH must be wrapped in "project", and
+// environment names are dropped because only environment_ids are permitted.
+// applyNames makes it honour environment_names, as the API will once
+// KeyHarbour/KeyHarbourApi#19 lands.
+type fakeProjectsAPI struct {
+	mu         sync.Mutex
+	applyNames bool
+	projects   []map[string]any
+	patches    []string
+}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("server should not be called")
-	}))
-	defer srv.Close()
-
+func newFakeProjectsAPI(t *testing.T, applyNames bool) *fakeProjectsAPI {
+	t.Helper()
+	api := &fakeProjectsAPI{applyNames: applyNames}
+	srv := httptest.NewServer(http.HandlerFunc(api.serve))
+	t.Cleanup(srv.Close)
 	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
 	t.Setenv("KH_TOKEN", "test-token")
+	return api
+}
 
-	cmd := newProjectsCreateCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"my-project", "--org", "org-123"})
+func (a *fakeProjectsAPI) serve(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	var body struct {
+		Project *struct {
+			Name             *string  `json:"name"`
+			EnvironmentNames []string `json:"environment_names"`
+		} `json:"project"`
+	}
+	raw, _ := io.ReadAll(r.Body)
+	_ = json.Unmarshal(raw, &body)
 
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--environment is required") {
-		t.Fatalf("expected missing environment error, got %v", err)
+	switch {
+	case r.URL.Path == "/api/v2/organizations/org-123/projects" && r.Method == http.MethodGet:
+		list := make([]map[string]any, 0, len(a.projects))
+		for _, p := range a.projects {
+			list = append(list, map[string]any{"uuid": p["uuid"], "name": p["name"]})
+		}
+		_ = json.NewEncoder(w).Encode(list)
+	case r.URL.Path == "/api/v2/organizations/org-123/projects" && r.Method == http.MethodPost:
+		envs := []string{}
+		if a.applyNames && body.Project != nil {
+			envs = body.Project.EnvironmentNames
+		}
+		a.projects = append(a.projects, map[string]any{"uuid": fmt.Sprintf("p-%d", len(a.projects)+1), "name": *body.Project.Name, "environments": envs})
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"status":"updated"}`)
+	case strings.HasPrefix(r.URL.Path, "/api/v2/projects/"):
+		p := a.find(strings.TrimPrefix(r.URL.Path, "/api/v2/projects/"))
+		if p == nil {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"message":"004 - project not found"}`)
+			return
+		}
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": p["name"], "environments": p["environments"]})
+			return
+		}
+		a.patches = append(a.patches, string(raw))
+		if body.Project == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":"param is missing or the value is empty: project"}`)
+			return
+		}
+		if body.Project.Name != nil {
+			p["name"] = *body.Project.Name
+		}
+		if a.applyNames && body.Project.EnvironmentNames != nil {
+			p["environments"] = body.Project.EnvironmentNames
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"status":"updated"}`)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (a *fakeProjectsAPI) find(uuid string) map[string]any {
+	for _, p := range a.projects {
+		if p["uuid"] == uuid {
+			return p
+		}
+	}
+	return nil
+}
+
+func runProjectsCmd(t *testing.T, cmd *cobra.Command, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func TestProjectsCreateCommand_EnvironmentIsOptional(t *testing.T) {
+	useTempConfigHome(t)
+	api := newFakeProjectsAPI(t, false)
+
+	out, errOut, err := runProjectsCmd(t, newProjectsCreateCmd(), "my-project", "--org", "org-123")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if !strings.Contains(out, `"my-project" created (uuid: p-1)`) {
+		t.Fatalf("expected the new project's UUID, got %q", out)
+	}
+	if errOut != "" {
+		t.Fatalf("no warning expected without --environment, got %q", errOut)
+	}
+	if len(api.projects) != 1 {
+		t.Fatalf("expected one project created, got %d", len(api.projects))
+	}
+}
+
+// Today's API drops environment names; create must say so instead of
+// reporting a clean success.
+func TestProjectsCreateCommand_WarnsWhenEnvironmentsNotApplied(t *testing.T) {
+	useTempConfigHome(t)
+	newFakeProjectsAPI(t, false)
+
+	out, errOut, err := runProjectsCmd(t, newProjectsCreateCmd(), "my-project", "--org", "org-123", "--environment", "production", "--environment", "staging")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if !strings.Contains(out, "uuid: p-1") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if !strings.Contains(errOut, "environments not applied: production, staging") || !strings.Contains(errOut, "KeyHarbourApi#19") {
+		t.Fatalf("expected a warning naming the dropped environments, got %q", errOut)
+	}
+}
+
+func TestProjectsCreateCommand_NoWarningWhenEnvironmentsApplied(t *testing.T) {
+	useTempConfigHome(t)
+	newFakeProjectsAPI(t, true)
+
+	_, errOut, err := runProjectsCmd(t, newProjectsCreateCmd(), "my-project", "--org", "org-123", "--environment", "Production")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if errOut != "" {
+		t.Fatalf("no warning expected when environments stick, got %q", errOut)
+	}
+}
+
+func TestProjectsCreateCommand_TellsApartDuplicateNames(t *testing.T) {
+	useTempConfigHome(t)
+	api := newFakeProjectsAPI(t, false)
+	api.projects = []map[string]any{{"uuid": "p-existing", "name": "my-project", "environments": []string{}}}
+
+	out, _, err := runProjectsCmd(t, newProjectsCreateCmd(), "my-project", "--org", "org-123")
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if !strings.Contains(out, "uuid: p-2") {
+		t.Fatalf("expected the new project, not the existing one with the same name, got %q", out)
 	}
 }
 
@@ -412,43 +560,40 @@ func TestProjectsUpdateCommand_SendsCorrectPayload(t *testing.T) {
 	}
 }
 
-func TestProjectsUpdateCommand_FillsUnchangedFieldsFromCurrentState(t *testing.T) {
+// A rename must leave environments alone: the old code re-sent whatever GET
+// returned, which (with "environments" not decoded) was always empty.
+func TestProjectsUpdateCommand_NameOnlyLeavesEnvironmentsAlone(t *testing.T) {
 	useTempConfigHome(t)
+	api := newFakeProjectsAPI(t, true)
+	api.projects = []map[string]any{{"uuid": "proj-123", "name": "old", "environments": []string{"staging", "production"}}}
 
-	var gotBody []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/projects/proj-123":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"uuid":"proj-123","name":"existing-name","environment_names":["staging","production"]}`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/api/v2/projects/proj-123":
-			gotBody, _ = io.ReadAll(r.Body)
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(`{"status":"updated"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	t.Setenv("KH_ENDPOINT", srv.URL+"/api/v2")
-	t.Setenv("KH_TOKEN", "test-token")
-
-	cmd := newProjectsUpdateCmd()
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	// Only pass --name; environments should be preserved from current state.
-	cmd.SetArgs([]string{"proj-123", "--name", "renamed"})
-
-	if err := cmd.Execute(); err != nil {
+	_, errOut, err := runProjectsCmd(t, newProjectsUpdateCmd(), "proj-123", "--name", "renamed")
+	if err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
-	body := string(gotBody)
-	if !strings.Contains(body, `"renamed"`) {
-		t.Fatalf("expected renamed in body, got: %s", body)
+	if len(api.patches) != 1 || api.patches[0] != `{"project":{"name":"renamed"}}` {
+		t.Fatalf("expected a wrapped rename only, got %v", api.patches)
 	}
-	if !strings.Contains(body, "staging") || !strings.Contains(body, "production") {
-		t.Fatalf("expected existing environments preserved in body, got: %s", body)
+	p := api.find("proj-123")
+	if p["name"] != "renamed" || strings.Join(p["environments"].([]string), ",") != "staging,production" {
+		t.Fatalf("environments must be untouched by a rename, got %v", p)
+	}
+	if errOut != "" {
+		t.Fatalf("no warning expected, got %q", errOut)
+	}
+}
+
+func TestProjectsUpdateCommand_WarnsWhenEnvironmentsNotApplied(t *testing.T) {
+	useTempConfigHome(t)
+	api := newFakeProjectsAPI(t, false)
+	api.projects = []map[string]any{{"uuid": "proj-123", "name": "demo", "environments": []string{"staging"}}}
+
+	_, errOut, err := runProjectsCmd(t, newProjectsUpdateCmd(), "proj-123", "--environment", "staging", "--environment", "production")
+	if err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if !strings.Contains(errOut, "environments not applied: production") || strings.Contains(errOut, "staging") {
+		t.Fatalf("expected a warning for production only, got %q", errOut)
 	}
 }
 
@@ -799,5 +944,19 @@ func TestIsTerminal(t *testing.T) {
 	defer devnull.Close()
 	if !isTerminal(devnull) {
 		t.Errorf("%s is a character device and should report true", os.DevNull)
+	}
+}
+
+func TestProjectsUpdateCommand_RejectsEmptyName(t *testing.T) {
+	useTempConfigHome(t)
+	api := newFakeProjectsAPI(t, true)
+	api.projects = []map[string]any{{"uuid": "proj-123", "name": "demo", "environments": []string{}}}
+
+	_, _, err := runProjectsCmd(t, newProjectsUpdateCmd(), "proj-123", "--name", " ")
+	if err == nil || !strings.Contains(err.Error(), "--name cannot be empty") {
+		t.Fatalf("expected empty-name error, got %v", err)
+	}
+	if len(api.patches) != 0 {
+		t.Fatalf("nothing should be sent, got %v", api.patches)
 	}
 }

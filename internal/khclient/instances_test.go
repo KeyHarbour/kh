@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestListInstances(t *testing.T) {

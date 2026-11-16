@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	"kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/config"
 )
 
 func TestListKeyValues(t *testing.T) {

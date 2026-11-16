@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"kh/internal/backend"
-	"kh/internal/config"
-	"kh/internal/khclient"
-	"kh/internal/kherrors"
-	"kh/internal/logging"
-	"kh/internal/output"
-	"kh/internal/state"
-	"kh/internal/workerpool"
+	"github.com/KeyHarbour/kh/internal/backend"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/khclient"
+	"github.com/KeyHarbour/kh/internal/kherrors"
+	"github.com/KeyHarbour/kh/internal/logging"
+	"github.com/KeyHarbour/kh/internal/output"
+	"github.com/KeyHarbour/kh/internal/state"
+	"github.com/KeyHarbour/kh/internal/workerpool"
 
 	"github.com/spf13/cobra"
 )
@@ -53,6 +53,7 @@ func newSyncCmd() *cobra.Command {
 
 	// Output flags
 	var genBackend bool
+	var destEnv string
 
 	// Operation flags
 	var dryRun bool
@@ -130,6 +131,7 @@ Examples:
 
 			// Setup Reader
 			var r backend.Reader
+			var khReader *backend.KeyHarbourReader
 			switch from {
 			case "local":
 				if localPath == "" {
@@ -163,7 +165,8 @@ Examples:
 				if cfg.Token == "" {
 					return kherrors.ErrMissingToken.New("not logged in: KH_TOKEN is missing")
 				}
-				r = backend.NewKeyHarbourReader(client, srcProject, srcWorkspace, stateID, env)
+				khReader = backend.NewKeyHarbourReader(client, srcProject, srcWorkspace, stateID, env)
+				r = khReader
 			default:
 				return kherrors.ErrInvalidValue.Newf("unsupported --from: %s (supported: local,http,tfc,keyharbour)", from)
 			}
@@ -225,6 +228,19 @@ Examples:
 				w = backend.NewTFCWriter(destTFCHost, destTFCOrg, destTFCWorkspace, destTFCToken)
 			default:
 				return kherrors.ErrInvalidValue.Newf("unsupported --to: %s (supported: keyharbour,local,http,tfc)", to)
+			}
+
+			// Locks are taken before listing so the whole run, enumeration
+			// included, is covered. KeyHarbour locks per workspace.
+			if lock && !dryRun {
+				release, err := acquireSyncLocks(ctx, cmd, client, syncLockPlan{
+					from: from, to: to, srcReader: khReader, srcEnv: env,
+					destWorkspace: targetWorkspaceRef, destEnv: destEnv,
+				})
+				if err != nil {
+					return err
+				}
+				defer release()
 			}
 
 			// List objects from source
@@ -308,27 +324,6 @@ Examples:
 
 			// Process objects with concurrency
 			results := workerpool.RunContext(ctx, objs, concurrency, func(obj backend.Object) error {
-				// The lock is taken before Get, so the payload read and the
-				// subsequent write are both covered. What is deliberately NOT
-				// covered is the List above: the set of objects is enumerated
-				// before any lock exists, so an object can be created or deleted
-				// between enumeration and processing. A deleted one is reported
-				// explicitly below; a newly created one is simply not in this run.
-				// Closing that gap needs a workspace-level lock, which would
-				// change --lock from per-object to whole-run granularity.
-				lockID := ""
-				if lock && from == "keyharbour" {
-					if obj.Module != "" {
-						lockID = obj.Module
-					} else {
-						lockID = obj.Key
-					}
-					if err := client.AcquireLock(ctx, lockID); err != nil {
-						return fmt.Errorf("failed to acquire lock for %s: %w", obj.Key, err)
-					}
-					defer func() { _ = client.ReleaseLock(ctx, lockID, false) }()
-				}
-
 				// Read data
 				data, meta, err := r.Get(ctx, obj.Key)
 				if err != nil {
@@ -457,7 +452,7 @@ Examples:
 						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --kh-gen-backend: could not resolve workspace: %v\n", err)
 					} else if blocked, existing := backendSampleBlocked("."); blocked {
 						fmt.Fprintf(cmd.ErrOrStderr(), "skipping --kh-gen-backend: %s already exists\n", existing)
-					} else if werr := writeBackendSample("kh_backend.tf.sample", cfg.Endpoint, ws.UUID, cfg.Token); werr != nil {
+					} else if werr := writeBackendSample("kh_backend.tf.sample", cfg.Endpoint, ws.UUID, destEnv); werr != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not write kh_backend.tf.sample: %v\n", werr)
 					} else {
 						fmt.Fprintf(cmd.OutOrStdout(), "Backend sample written to kh_backend.tf.sample\n")
@@ -500,12 +495,13 @@ Examples:
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview actions without writing")
 	cmd.Flags().BoolVar(&verifyChecksum, "verify-checksum", false, "Verify checksums during sync")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing files/states")
-	cmd.Flags().BoolVar(&lock, "lock", false, "Hold an advisory lock on each object while it is read and written; does not cover the initial listing (for --from=keyharbour)")
+	cmd.Flags().BoolVar(&lock, "lock", false, "Hold the Terraform state lock on the KeyHarbour source and destination workspaces for the whole run (needs --kh-src-env / --kh-workspace and --kh-env)")
 	cmd.Flags().BoolVar(&verifyAfterUpload, "verify-after-upload", true, "Verify upload for HTTP destinations")
 	cmd.Flags().StringVar(&workspacePattern, "local-workspace-pattern", "", "Workspace regex filter (for --from=local)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 0, "Parallelism for operations (defaults from KH_CONCURRENCY)")
 	cmd.Flags().StringVar(&idempotencyKey, "http-idempotency-key", "", "Idempotency-Key header (for --to=http)")
 	cmd.Flags().BoolVar(&genBackend, "kh-gen-backend", false, "Write kh_backend.tf.sample after a successful sync to keyharbour")
+	cmd.Flags().StringVar(&destEnv, "kh-env", "", "Destination environment name, used by --lock and in the --kh-gen-backend address (for --to=keyharbour)")
 
 	return cmd
 }
@@ -544,6 +540,73 @@ func resolveLocalOutputPath(template string, obj backend.Object) (string, error)
 	return clean, nil
 }
 
+// syncLockPlan is what acquireSyncLocks needs to work out which KeyHarbour
+// workspaces a sync touches.
+type syncLockPlan struct {
+	from, to      string
+	srcReader     *backend.KeyHarbourReader
+	srcEnv        string
+	destWorkspace string
+	destEnv       string
+}
+
+type workspaceLock struct {
+	workspace, environment string
+}
+
+// acquireSyncLocks locks every KeyHarbour workspace the sync reads from or
+// writes to, and returns a func that releases them. If any lock is refused,
+// the ones already taken are released before returning the error.
+func acquireSyncLocks(ctx context.Context, cmd *cobra.Command, client *khclient.Client, plan syncLockPlan) (func(), error) {
+	if plan.from != "keyharbour" && plan.to != "keyharbour" {
+		return nil, kherrors.ErrInvalidValue.New("--lock requires --from=keyharbour or --to=keyharbour")
+	}
+	var targets []workspaceLock
+	if plan.from == "keyharbour" {
+		if plan.srcEnv == "" {
+			return nil, kherrors.ErrMissingFlag.New("--lock with --from=keyharbour requires --kh-src-env")
+		}
+		ws, err := plan.srcReader.WorkspaceUUID(ctx)
+		if err != nil {
+			return nil, kherrors.ErrBackendIO.Wrapf(err, "cannot resolve source workspace to lock: %s", err)
+		}
+		targets = append(targets, workspaceLock{ws, plan.srcEnv})
+	}
+	if plan.to == "keyharbour" {
+		if !looksLikeUUID(plan.destWorkspace) {
+			return nil, kherrors.ErrMissingFlag.New("--lock with --to=keyharbour requires --kh-workspace <workspace-uuid>")
+		}
+		if plan.destEnv == "" {
+			return nil, kherrors.ErrMissingFlag.New("--lock with --to=keyharbour requires --kh-env")
+		}
+		if len(targets) == 0 || !strings.EqualFold(targets[0].workspace, plan.destWorkspace) {
+			targets = append(targets, workspaceLock{plan.destWorkspace, plan.destEnv})
+		}
+	}
+
+	info := newLockInfo("kh-sync", fmt.Sprintf("kh tf sync --from=%s --to=%s", plan.from, plan.to))
+	var held []workspaceLock
+	release := func() {
+		// Release even if the run's context was cancelled.
+		relCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for _, l := range held {
+			if _, err := client.UnlockWorkspace(relCtx, l.workspace, l.environment, info.ID); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not release lock %s on workspace %s: %v\n", info.ID, l.workspace, err)
+			}
+		}
+	}
+	for _, t := range targets {
+		if err := client.LockWorkspace(ctx, t.workspace, t.environment, info); err != nil {
+			release()
+			return nil, lockConflictError(err, t.workspace)
+		}
+		held = append(held, t)
+		logging.Debugf("Locked workspace %s (lock ID %s)", t.workspace, info.ID)
+	}
+	return release, nil
+}
+
 // backendSampleBlocked returns true if any kh_backend.{hcl,tf,tf.sample} file
 // already exists in dir, along with the path that blocked it.
 func backendSampleBlocked(dir string) (bool, string) {
@@ -556,16 +619,24 @@ func backendSampleBlocked(dir string) (bool, string) {
 	return false, ""
 }
 
+// environmentPlaceholder stands in for the environment name in generated
+// backend configs when it is not known at generation time.
+const environmentPlaceholder = "YOUR_ENVIRONMENT"
+
 // writeBackendSample generates a kh_backend.tf.sample Terraform HTTP backend config.
 // The token is intentionally omitted; users must supply it via TF_HTTP_PASSWORD or
 // by setting the password field manually — never store credentials in source-controlled files.
-func writeBackendSample(outPath, endpoint, workspaceUUID, _ string) error {
-	stateAddr := fmt.Sprintf("%s/workspaces/%s/state", endpoint, workspaceUUID)
-	lockAddr := fmt.Sprintf("%s/workspaces/%s/state/lock", endpoint, workspaceUUID)
+func writeBackendSample(outPath, endpoint, workspaceUUID, environment string) error {
+	envStep := ""
+	if environment == "" {
+		environment = environmentPlaceholder
+		envStep = fmt.Sprintf("#   0. Replace %s in the addresses with an environment of the project\n", environmentPlaceholder)
+	}
+	addr := terraformBackendAddress(endpoint, workspaceUUID, environment)
 	content := fmt.Sprintf(`# Generated by kh — %s
 #
 # To switch your Terraform workspace to KeyHarbour:
-#   1. Rename this file to kh_backend.tf
+%s#   1. Rename this file to kh_backend.tf
 #   2. Set your API token: export TF_HTTP_PASSWORD=<your-kh-token>
 #      (do NOT hardcode the token in this file — keep it out of version control)
 #   3. Run: terraform init -reconfigure
@@ -575,12 +646,12 @@ terraform {
     address        = %q
     lock_address   = %q
     unlock_address = %q
-    lock_method    = "POST"
+    lock_method    = "PUT"
     unlock_method  = "DELETE"
     username       = "kh"
     # password is read from TF_HTTP_PASSWORD environment variable
   }
 }
-`, time.Now().Format("2006-01-02"), stateAddr, lockAddr, lockAddr)
+`, time.Now().Format("2006-01-02"), envStep, addr, addr, addr)
 	return os.WriteFile(outPath, []byte(content), 0o600)
 }

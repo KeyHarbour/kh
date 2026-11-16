@@ -15,8 +15,8 @@ import (
 	"path"
 	"time"
 
-	"kh/internal/config"
-	"kh/internal/logging"
+	"github.com/KeyHarbour/kh/internal/config"
+	"github.com/KeyHarbour/kh/internal/logging"
 )
 
 const (
@@ -61,13 +61,19 @@ func New(cfg config.Config) *Client {
 }
 
 func (c *Client) do(ctx context.Context, method, p string, q url.Values, body any, headers map[string]string) (*http.Response, error) {
+	return c.doAt(ctx, c.Endpoint, method, p, q, body, headers)
+}
+
+// doAt is do against an explicit base URL, for the few routes that live
+// outside the configured /api/v2 endpoint.
+func (c *Client) doAt(ctx context.Context, base, method, p string, q url.Values, body any, headers map[string]string) (*http.Response, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	attempts := c.Retries + 1
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
-		req, err := c.newReq(ctx, method, p, q, body)
+		req, err := c.newReq(ctx, base, method, p, q, body)
 		if err != nil {
 			return nil, err
 		}
@@ -140,11 +146,11 @@ func shouldRetryStatus(code int) bool {
 	return code >= 500 && code != http.StatusNotImplemented
 }
 
-func (c *Client) newReq(ctx context.Context, method, p string, q url.Values, body any) (*http.Request, error) {
-	if c.Endpoint == "" {
+func (c *Client) newReq(ctx context.Context, base, method, p string, q url.Values, body any) (*http.Request, error) {
+	if base == "" {
 		return nil, fmt.Errorf("missing endpoint in config")
 	}
-	u, err := url.Parse(c.Endpoint)
+	u, err := url.Parse(base)
 	if err != nil {
 		return nil, err
 	}

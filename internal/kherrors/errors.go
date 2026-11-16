@@ -19,7 +19,7 @@ import (
 	"errors"
 	"fmt"
 
-	"kh/internal/exitcodes"
+	"github.com/KeyHarbour/kh/internal/exitcodes"
 )
 
 // Category classifies errors by their operational domain.

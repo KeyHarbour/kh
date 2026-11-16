@@ -24,10 +24,16 @@ func (c *Client) ListProjects(ctx context.Context, organizationUUID string) ([]P
 	return out, decodeJSON(resp, &out)
 }
 
+// CreateProject creates a project. KeyHarbourApi answers with a bare status
+// and no UUID, so the new project is found by listing the organization's
+// projects before and after the create: names are not unique, so the new
+// project is the one with that name that was not there before. The lookup is
+// best effort; when it fails the project is returned without a UUID.
 func (c *Client) CreateProject(ctx context.Context, organizationUUID string, req CreateProjectRequest) (Project, error) {
 	if organizationUUID == "" {
 		return Project{}, fmt.Errorf("organization uuid is required")
 	}
+	before, beforeErr := c.ListProjects(ctx, organizationUUID)
 	body := struct {
 		Project CreateProjectRequest `json:"project"`
 	}{Project: req}
@@ -42,19 +48,51 @@ func (c *Client) CreateProject(ctx context.Context, organizationUUID string, req
 	}
 	var out Project
 	if err := decodeJSON(resp, &out); err != nil {
-		return Project{Name: req.Name}, nil
+		out = Project{}
 	}
 	if out.Name == "" {
 		out.Name = req.Name
 	}
+	if out.UUID == "" {
+		if after, err := c.ListProjects(ctx, organizationUUID); err == nil {
+			var existing map[string]bool
+			if beforeErr == nil {
+				existing = make(map[string]bool, len(before))
+				for _, b := range before {
+					existing[b.UUID] = true
+				}
+			}
+			out.UUID = newProjectUUID(after, existing, req.Name)
+		}
+	}
 	return out, nil
+}
+
+// newProjectUUID returns the UUID of the only project named name that is not
+// in existing, or "" when there is not exactly one. A nil existing set (the
+// listing before the create failed) matches on the name alone.
+func newProjectUUID(projects []Project, existing map[string]bool, name string) string {
+	found := ""
+	for _, p := range projects {
+		if p.Name != name || existing[p.UUID] {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = p.UUID
+	}
+	return found
 }
 
 func (c *Client) UpdateProject(ctx context.Context, projectUUID string, req UpdateProjectRequest) error {
 	if projectUUID == "" {
 		return fmt.Errorf("project uuid is required")
 	}
-	resp, err := c.do(ctx, http.MethodPatch, "/projects/"+url.PathEscape(projectUUID), nil, req, nil)
+	body := struct {
+		Project UpdateProjectRequest `json:"project"`
+	}{Project: req}
+	resp, err := c.do(ctx, http.MethodPatch, "/projects/"+url.PathEscape(projectUUID), nil, body, nil)
 	if err != nil {
 		return err
 	}

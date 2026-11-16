@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	internalconfig "kh/internal/config"
+	internalconfig "github.com/KeyHarbour/kh/internal/config"
 
 	"github.com/spf13/cobra"
 )

@@ -1,3 +1,26 @@
+## v1.16.0 (2026-11-16)
+
+### Upgrade notes
+* `kh tf state ls` and `kh tf state show` are removed. They never worked against KeyHarbour; use `kh tf version ls` and `kh tf version get` instead.
+* `kh tf state lock`, `kh tf state unlock` and `kh tf state verify` now work. Lock and unlock take `--workspace` and `--environment`; unlock checks the lock ID unless `--force` is passed.
+* `kh tf sync --lock` now holds one lock per KeyHarbour workspace for the whole run. It needs `--kh-src-env` for a KeyHarbour source, and `--kh-workspace <workspace-uuid>` plus `--kh-env` for a KeyHarbour destination.
+* `kh tf init` now writes the backend address KeyHarbour serves (`/statefiles/v1/<workspace-uuid>/<environment>`, `lock_method = "PUT"`). Regenerate `backend.hcl` files made by earlier versions. The new `--workspace` flag fills in the workspace UUID.
+* `kh project create` no longer requires `--environment`. KeyHarbour does not apply environment names on create or update yet, so kh warns when they are missing.
+* The Go module path is now `github.com/KeyHarbour/kh`.
+
+### Bug Fixes
+* stop silently dropping project environments (409cb80)
+* replace the legacy /v1/states client with the real lock and statefile APIs (5d3edec)
+* generate Terraform backend config that matches KeyHarbourApi (6c02cac)
+* use a resolvable module path, and pin the release ldflag to it (b625a52)
+
+### Maintenance
+* bump Go toolchain to go1.26.11 (5a9a038)
+* bump actions/checkout from 6 to 7 (a72e072)
+* bump actions/setup-go from 6 to 7 (9e698c0)
+
+---
+
 ## v1.15.1 (2026-09-19)
 
 ### Bug Fixes

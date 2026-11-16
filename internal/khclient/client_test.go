@@ -13,7 +13,7 @@ import (
 func TestClientNewReq_PreservesEscapedPathSegments(t *testing.T) {
 	c := &Client{Endpoint: "https://example.test/api/v2"}
 
-	req, err := c.newReq(context.Background(), http.MethodGet, "/keyvalues/my%20key%2Fpart", nil, nil)
+	req, err := c.newReq(context.Background(), c.Endpoint, http.MethodGet, "/keyvalues/my%20key%2Fpart", nil, nil)
 	if err != nil {
 		t.Fatalf("newReq error: %v", err)
 	}
